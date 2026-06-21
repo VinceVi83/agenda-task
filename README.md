@@ -131,16 +131,15 @@ sudo systemctl start scheduler.service
 > **[Placeholder: Write your manual or automated testing instructions here.]**
 > 
 > *Example scenario to document:*
-> 1. *How to run integration tests suite with `pytest test_integration.py`.*
+> 1. *How to run integration tests suite with `pytest run_tests.py`.*
 > 2. *Example HTTP `curl` requests for manually creating a task via terminal.*
 > 3. *Expected behavior to observe in console during execution of a test task.*
 
 ## Future Evolution Roadmap
 
 * **Global Configuration:**
-  * Centralize system settings (timezones, logs, retention) into config.json.
   * Dedicated GET/POST /config endpoints.
-  * Adjustment forms in gui.py.
+  * Adjustment forms in index.html.
 
 * **Dynamic Python Scripts:**
   * Runtime importation of external modules via system paths.
@@ -148,16 +147,12 @@ sudo systemctl start scheduler.service
   * Strict signature and arguments validation.
 
 * **Local LLM (Ollama / Llama.cpp):**
-  * Reporting: Audit and diagnostic report on scheduler state in free text.
+  * Reporting: Audit and diagnostic report on scheduler state.
   * Management: Add, edit and remove tasks in natural language.
-  * Interfacing via generation of typed JSON structures.
 
 * **Discord Bridge & Tier Services:**
   * Endpoint POST /integrations/execute-action for immediate forced triggers.
-  * Remote event consumption by discord-local-llm-bridge.
-  * Authentication via static API key.
 
 * **Debug & Force Update:**
   * "Force Update" button with st.rerun() in UI.
-  * Endpoint POST /scheduler/reload in API.
-  * Routine for clearing APScheduler queue, blank read of JSON files and complete sequential re-scheduling.
+  * Endpoint POST /scheduler/reload all system.
