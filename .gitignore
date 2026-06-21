@@ -222,3 +222,5 @@ __marimo__/
 data
 *.png
 .aider*
+*.out
+test.py

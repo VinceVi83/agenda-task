@@ -1,0 +1,5 @@
+system:
+  port: 9500
+  mcp:
+    - mcp_server.py
+    - /home/user/path/discord-skills/server_mcp.py

@@ -4,6 +4,9 @@ import os
 import requests
 from datetime import datetime, timedelta
 
+import logging
+logger = logging.getLogger(__name__)
+
 st.set_page_config(page_title="Orchestrateur", layout="wide")
 
 API_URL = "http://localhost:8888"

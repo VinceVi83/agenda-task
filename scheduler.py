@@ -11,34 +11,32 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
 from apscheduler.events import EVENT_ALL
 
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='[%(asctime)s] %(levelname)s SimpleScheduler %(message)s',
-    datefmt='%Y-%m-%dT%H:%M:%S'
-)
+from config_loader import cfg_agendata_task
+
+import logging
 logger = logging.getLogger(__name__)
 
 def read_json(file_path):
     if not os.path.exists(file_path):
-        print(f"File {file_path} not found, creating with an empty array")
+        logger.info(f"File {file_path} not found, creating with an empty array")
         return []
     
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
-        print(f"File read : {file_path}")
+        logger.info(f"File read : {file_path}")
         return data
     except json.JSONDecodeError as e:
-        print(f"Error : The file {file_path} is not a valid JSON. Error : {e}")
+        logger.error(f"Error : The file {file_path} is not a valid JSON. Error : {e}")
         return []
 
 def save_json(file_path, data):
     try:
         with open(file_path, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=4)
-        print(f"Data saved in : {file_path}")
+        logger.info(f"Data saved in : {file_path}")
     except Exception as e:
-        print(f"Error during save : {e}")
+        logger.error(f"Error during save : {e}")
         sys.exit(1)
 
 class scheduler:
@@ -109,33 +107,34 @@ class scheduler:
             logger.error(f"Error during configuration save: {e}")
 
     def _load_functions(self):
+        self.functions = {}
         try:
             with open('function_docs.json', 'r', encoding='utf-8') as f:
                 function_docs = json.load(f)
             
             for function_full_name, function_doc in function_docs.get('functions', {}).items():
                 module_name = function_doc.get('module')
+                module_path = function_doc.get('path')
                 if module_name is None and '.' in function_full_name:
                     module_name = function_full_name.rsplit('.', 1)[0]
                 
                 if module_name is None:
                     logger.error(f"Module not specified for function {function_full_name}")
                     continue
-                    
-                try:
-                    module = importlib.import_module(module_name)
-                    if '.' in function_full_name:
-                        function_name = function_full_name.split('.')[-1]
-                    else:
-                        function_name = function_full_name
-                    
-                    func = getattr(module, function_name)
-                    self.functions[function_full_name] = func
-                    if not module_name.startswith('mcp_server'):
-                        logger.info(f"Function loaded : {function_full_name}")
-                except Exception as e:
-                    if not module_name.startswith('mcp_server'):
-                        logger.error(f"Error during function loading for {function_full_name}: {e}")
+
+                if '.' in function_full_name:
+                    function_name = function_full_name.split('.')[-1]
+                else:
+                    function_name = function_full_name
+
+                self.functions[function_full_name] = {
+                    "module_name": module_name,
+                    "module_path": module_path,
+                    "function_name": function_name
+                }
+                if not module_name.startswith('mcp_server'):
+                    logger.info(f"Function registered for subprocess: {function_full_name}")
+
         except FileNotFoundError:
             logger.error("The file function_docs.json was not found.")
         except json.JSONDecodeError as e:
@@ -268,46 +267,58 @@ class scheduler:
         except Exception as e:
             logger.error(f"Error during reschedule handling for task {task.get('id')}: {e}")
 
-    def _execute_task_wrapper(self, task: Dict[str, Any]):
-        task_id = task.get('id')
-        function_name = task.get('function')
-        status = task.get('status')
-        state = task.get('state', 'active')
-        skip_next = task.get('skip_next', [])
-        
-        logger.info(f"EXECUTE_TASK_WRAPPER: Task ID={task_id}, Function={function_name}, Status={status}, State={state}, SkipNext={skip_next}")
-        
-        if status == 'pause':
-            logger.info(f"Task paused : {task_id}")
+    def _execute_task_wrapper(self, function_full_name, args=None, kwargs=None):
+        if args is None: args = []
+        if kwargs is None: kwargs = {}
+
+        if function_full_name not in self.functions:
+            logger.error(f"Function {function_full_name} not found in registered functions.")
             return
 
-        if self._handle_skip_next(task):
-            logger.info(f"Task skipped : {task_id}")
-            return
-        
-        args = task.get('args', [])
-        
+        func_meta = self.functions[function_full_name]
+        module_path = func_meta["module_path"]
+        module_name = func_meta["module_name"]
+        function_name = func_meta["function_name"]
+
+        import subprocess
+        import sys
+
+        script_code = f"""
+import sys
+import os
+import json
+
+import logging
+logger = logging.getLogger(__name__)
+
+if '{module_path}':
+    sys.path.insert(0, '{module_path}')
+    os.chdir('{module_path}')
+
+import {module_name}
+func = getattr({module_name}, '{function_name}')
+
+# Appel de la fonction avec les arguments
+func(*{args}, **{kwargs})
+"""
+
         try:
-            func = self.functions.get(function_name)
-            if func is None:
-                module = importlib.import_module(function_name)
-                func = getattr(module, function_name)
-                self.functions[function_name] = func
-                logger.info(f"Function loaded dynamically : {function_name}")
+            logger.info(f"Executing {function_full_name} via isolated subprocess...")
             
-            logger.info(f"Executing function {function_name} for task {task_id}")
-            func(*args)
-            logger.info(f"Task executed successfully : {task_id}")
-            if task.get('status') == 'err':
-                task['status'] = 'ok'
-            
-        except Exception as e:
-            task['status'] = 'err'
-            logger.error(f"Error during execution of task {task_id}: {e}")
-        
-        finally:
-            if task.get('trigger_type') == 'date':
-                self.remove_task(task_id, save=True)
+            process = subprocess.run(
+                [sys.executable, "-c", script_code],
+                cwd=module_path if module_path else os.getcwd(),
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            logger.info(f"✅ {function_full_name} executed successfully.")
+            if process.stdout:
+                logger.debug(f"Subprocess stdout: {process.stdout}")
+
+        except subprocess.CalledProcessError as e:
+            logger.error(f"❌ Error during isolated execution of {function_full_name}:")
+            logger.error(e.stderr)
 
     def _create_cron_trigger(self, cron_params: Dict[str, str]) -> CronTrigger:
         try:
@@ -341,6 +352,11 @@ class scheduler:
     def add_task(self, task: Dict[str, Any], on_load: bool = False):
         task_id = task.get('id')
         trigger_type = task.get('trigger_type')
+        
+        function_full_name = task.get('function')
+        task_args = task.get('args', [])
+        task_kwargs = task.get('kwargs', {})
+
         if self._check_task_exists(task_id):
             logger.error(f"A task with ID {task_id} already exists in the scheduler.")
             raise ValueError(f"Task with ID {task_id} already exists in scheduler")
@@ -364,15 +380,14 @@ class scheduler:
                 self._execute_task_wrapper,
                 trigger=trigger,
                 id=task_id,
-                args=[task],
+                args=[function_full_name, task_args, task_kwargs],
                 replace_existing=True
             )
             if not on_load:
                 self.tasks.append(task)
                 save_json('tasks.json', self.tasks)
             
-            logger.info(f"Task added : {task_id}")
-            
+            logger.info(f"Task added : {task_id} targeting {function_full_name}")
         except Exception as e:
             logger.error(f"Error during task addition for {task_id}: {e}")
             raise

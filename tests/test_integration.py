@@ -6,6 +6,9 @@ from datetime import datetime, timedelta
 from conftest import make_api_request, wait_for_file, API_BASE_URL
 
 
+import logging
+logger = logging.getLogger(__name__)
+
 def create_task(task_id, trigger_type, **kwargs):
     task = {'id': task_id, 'function': 'mcp_server.write_file_task', 
             'args': [f'/tmp/test_{task_id}.txt', f'Content for {task_id}'], 
@@ -36,10 +39,10 @@ def test_1_one_shot_date_task():
     if tasks_resp and tasks_resp.status_code == 200:
         tasks = tasks_resp.json().get('tasks', [])
         task_ids = [t['id'] for t in tasks]
-        print(f"Tasks in scheduler after creation: {task_ids}")
+        logger.info(f"Tasks in scheduler after creation: {task_ids}")
         assert task_id in task_ids, f"Task {task_id} not found in scheduler tasks: {task_ids}"
     else:
-        print("WARNING: Could not get tasks list from scheduler")
+        logger.info("WARNING: Could not get tasks list from scheduler")
     
     tasks = make_api_request('GET', '/tasks').json().get('tasks', [])
     assert any(t['id'] == task_id for t in tasks), "Task not found"

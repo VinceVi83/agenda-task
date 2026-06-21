@@ -10,6 +10,11 @@ import signal
 import threading
 import sys
 
+from config_loader import cfg_agendata_task
+
+import logging
+logger = logging.getLogger(__name__)
+
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_call(item):
     start = time.perf_counter()
@@ -18,7 +23,7 @@ def pytest_runtest_call(item):
     with open(f"/tmp/perf_{item.name}.log", "w") as f:
         f.write(f"{duration:.2f}")
 
-API_BASE_URL = 'http://localhost:8888'
+API_BASE_URL = f'http://localhost:{cfg_agendata_task.system.port}'
 TASKS_JSON = 'tasks.json'
 PARENT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -152,7 +157,7 @@ def cleanup_test_tasks_before():
                         with open(parent_tasks_json, 'w') as f:
                             json.dump(cleaned_tasks, f, indent=2)
                 except Exception as e:
-                    print(f"Warning: Could not clean test tasks from recovered file: {e}")
+                    logger.warning(f"Warning: Could not clean test tasks from recovered file: {e}")
         except Exception as e:
             pass
     
@@ -180,7 +185,7 @@ def make_api_request(method, endpoint, data=None):
         if method == 'GET': return requests.get(url, timeout=10)
         if method == 'DELETE': return requests.delete(url, timeout=10)
     except Exception as e:
-        print(f"ERROR in make_api_request({method}, {endpoint}): {e}")
+        logger.error(f"Error in make_api_request({method}, {endpoint}): {e}")
         return None
 
 def wait_for_file(filepath, timeout=120):

@@ -11,6 +11,12 @@ import requests
 import glob
 import os
 
+from config_loader import cfg_agendata_task, setup_logging
+import logging
+setup_logging()
+logger = logging.getLogger(__name__)
+
+
 def cleanup_test_files():
     test_files = glob.glob('/tmp/test_*.txt')
     perf_files = glob.glob('/tmp/perf_test_*.log')
@@ -44,7 +50,7 @@ def run_single_test(test_num, load_test, parallel_mode=False):
         if test_num in test_mapping:
             cmd[1] = test_mapping[test_num]
         else:
-            print(f"Invalid test number: {test_num}")
+            logger.info(f"Invalid test number: {test_num}")
             return False
     
     python_cmd = [os.path.expanduser('~/project_envs/main/bin/python'), '-m', 'pytest'] + cmd[1:]
@@ -54,13 +60,13 @@ def run_single_test(test_num, load_test, parallel_mode=False):
 
 def run_pytest_tests(test_num=None, load_test=False, parallel=False):
     if parallel and not test_num:
-        print("Starting FastAPI server for parallel tests...")
+        logger.info("Starting FastAPI server for parallel tests...")
         server_process = start_fastapi_server()
         if server_process is None:
             return False
         
         try:
-            print("Running all tests in parallel...")
+            logger.info("Running all tests in parallel...")
             test_numbers = [1, 2, 3, 4, 5]
             
             with ThreadPoolExecutor(max_workers=len(test_numbers)) as executor:
@@ -71,10 +77,9 @@ def run_pytest_tests(test_num=None, load_test=False, parallel=False):
             passed = sum(results)
             failed = len(results) - passed
             
-            print(f"\n{'='*60}")
-            print(f"Parallel Test Results: {passed} passed, {failed} failed")
-            print(f"{'='*60}")
-            
+            logger.info(f"\n{'='*60}")
+            logger.info(f"Parallel Test Results: {passed} passed, {failed} failed")
+            logger.info(f"{'='*60}")
             test_names = {
                 1: 'ONE-SHOT DATE TASK',
                 2: 'CRON TASK WITH SKIP',
@@ -83,12 +88,11 @@ def run_pytest_tests(test_num=None, load_test=False, parallel=False):
                 5: 'RESCHEDULE AND RESET'
             }
             
-            print("\nIndividual Test Results:")
+            logger.info("\nIndividual Test Results:")
             for i, (test_num, result) in enumerate(zip(test_numbers, results), 1):
                 status = f"✅ Test {test_num} PASSED" if result else f"❌ Test {test_num} FAILED"
-                print(f"  Test {i}: {test_names[test_num]} - {status}")
-            
-            print(f"\n{'='*60}")
+                logger.info(f"  Test {i}: {test_names[test_num]} - {status}")
+            logger.info(f"\n{'='*60}")
 
             log_files = sorted(glob.glob('/tmp/perf_test_*.log'))
 
@@ -98,11 +102,10 @@ def run_pytest_tests(test_num=None, load_test=False, parallel=False):
                 try:
                     with open(log_file, 'r') as f:
                         duration = f.read().strip()
-                        print(f"{test_name:<40} | {duration:<12}")
+                        logger.info(f"{test_name:<40} | {duration:<12}")
                 except Exception as e:
-                    print(f"{test_name:<40} | Error reading")
-
-            print("="*60 + "\n")
+                    logger.info(f"{test_name:<40} | Error reading")
+            logger.info("="*60 + "\n")
             
             return all(results)
         finally:
@@ -110,25 +113,25 @@ def run_pytest_tests(test_num=None, load_test=False, parallel=False):
     else:
         result = run_single_test(test_num, load_test, False)
         if test_num:
-            print(f"\n{'='*60}")
+            logger.info(f"\n{'='*60}")
             if result:
-                print(f"Test {test_num} PASSED")
+                logger.info(f"Test {test_num} PASSED")
             else:
-                print(f"Test {test_num} FAILED")
-            print(f"{'='*60}")
+                logger.info(f"Test {test_num} FAILED")
+            logger.info(f"{'='*60}")
         return result
 
 def start_fastapi_server():
     try:
         try:
-            response = requests.get('http://localhost:8888', timeout=1)
+            response = requests.get(f'http://localhost:{cfg_agendata_task.system.port}', timeout=1)
             if response.status_code == 200:
-                print("⚠️  Found existing server on port 8888, attempting to kill it...")
+                logger.info(f"⚠️  Found existing server on port {cfg_agendata_task.system.port}, attempting to kill it...")
                 import psutil
                 for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
                     try:
                         if proc.info['cmdline'] and 'fast_api.py' in ' '.join(proc.info['cmdline']):
-                            print(f"Killing existing process {proc.info['pid']}")
+                            logger.info(f"Killing existing process {proc.info['pid']}")
                             proc.kill()
                             proc.wait(timeout=5)
                     except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.TimeoutExpired):
@@ -150,36 +153,34 @@ def start_fastapi_server():
         
         if process.poll() is not None:
             error_output = process.stderr.read()
-            print(f"❌ Server failed to start. Error: {error_output}")
+            logger.info(f"❌ Server failed to start. Error: {error_output}")
             return None
-        
         try:
-            response = requests.get('http://localhost:8888', timeout=2)
+            response = requests.get(f'http://localhost:{cfg_agendata_task.system.port}', timeout=2)
             if response.status_code == 200:
-                print("✅ FastAPI server started successfully and responding")
+                logger.info("✅ FastAPI server started successfully and responding")
                 return process
             else:
-                print(f"❌ Server started but returned status {response.status_code}")
+                logger.info(f"❌ Server started but returned status {response.status_code}")
                 process.terminate()
                 return None
         except Exception as e:
-            print(f"❌ Server process running but not responding: {e}")
+            logger.info(f"❌ Server process running but not responding: {e}")
             process.terminate()
             return None
-            
     except Exception as e:
-        print(f"❌ Failed to start server: {e}")
+        logger.info(f"❌ Failed to start server: {e}")
         return None
 
 def stop_fastapi_server(process):
     try:
         process.terminate()
         process.wait(timeout=5)
-        print("✅ FastAPI server stopped")
+        logger.info("✅ FastAPI server stopped")
     except subprocess.TimeoutExpired:
         process.kill()
         process.wait()
-        print("⚠️  FastAPI server killed (timeout)")
+        logger.info("⚠️  FastAPI server killed (timeout)")
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Run FastAPI scheduler tests')
@@ -188,16 +189,12 @@ if __name__ == '__main__':
     parser.add_argument('-p', '--parallel', action='store_true', help='Run all tests in parallel (only works when no test_num is specified)')
     
     args = parser.parse_args()
-    
-    print("Cleaning up test files before running tests...")
+    logger.info("Cleaning up test files before running tests...")
     cleanup_test_files()
-    
     success = run_pytest_tests(args.test_num, args.load_test, args.parallel)
-    
     if not args.load_test:
-        print("Cleaning up test files after running tests...")
+        logger.info("Cleaning up test files after running tests...")
         cleanup_test_files()
-    
     if success:
         sys.exit(0)
     else:

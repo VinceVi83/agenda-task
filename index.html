@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="fr" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎛️ Task Orchestrator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .rescheduled-pattern {
+            background-image: repeating-linear-gradient(
+                45deg,
+                transparent,
+                transparent 10px,
+                rgba(0, 191, 255, 0.1) 10px,
+                rgba(0, 191, 255, 0.1) 20px
+            );
+        }
+        .line-clamp-2 {
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+    </style>
+</head>
+<body class="bg-[#0d1117] text-[#c9d1d9] min-h-screen font-sans antialiased">
+
+    <header class="border-b border-[#21262d] bg-[#161b22] px-6 py-4">
+        <div class="max-w-[1600px] mx-auto flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <h1 class="text-3xl font-bold text-white flex items-center gap-2">🎛️ Task Orchestrator</h1>
+            
+            <div class="flex items-center gap-4">
+                <div class="flex items-center gap-2">
+                    <label for="daysToShow" class="text-sm text-[#8b949e]">Days:</label>
+                    <input type="number" id="daysToShow" min="3" max="7" class="w-16 bg-[#0d1117] border border-[#30363d] rounded px-2 py-1 text-white focus:outline-none focus:border-blue-500">
+                </div>
+                <button onclick="openModal('add')" class="bg-[#238636] hover:bg-[#2ea043] text-white px-4 py-2 rounded text-sm font-semibold transition-colors flex items-center gap-1">
+                    <span>➕ Add</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-[1600px] mx-auto px-6 py-4">
+        <div class="border-b border-[#21262d] mb-6 flex gap-4">
+            <button id="tabCalBtn" onclick="switchTab('calendar')" class="py-2 px-4 border-b-2 border-blue-500 text-white font-medium text-sm flex items-center gap-2">📅 Calendar</button>
+            <button id="tabListBtn" onclick="switchTab('list')" class="py-2 px-4 border-b-2 border-transparent text-[#8b949e] hover:text-white font-medium text-sm flex items-center gap-2">📋 List</button>
+        </div>
+
+        <section id="calendarView" class="block">
+            <div id="calendarGrid" class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-7 gap-4 items-start">
+            </div>
+        </section>
+
+        <section id="listView" class="hidden bg-[#161b22] border border-[#21262d] rounded-lg overflow-hidden">
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="border-b border-[#21262d] bg-[#0d1117] text-sm font-semibold text-white">
+                            <th class="p-4">Task ID</th>
+                            <th class="p-4">Trigger / Schedule</th>
+                            <th class="p-4">Arguments</th>
+                            <th class="p-4">Status</th>
+                            <th class="p-4 text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="listTableBody" class="text-sm divide-y divide-[#21262d]">
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+
+    <div id="taskModal" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
+        <div class="bg-[#161b22] border border-[#30363d] rounded-xl w-full max-w-2xl overflow-hidden shadow-2xl">
+            <div class="p-6 border-b border-[#21262d] flex justify-between items-center">
+                <h3 id="modalTitle" class="text-xl font-bold text-white">Task Configuration</h3>
+                <div id="tempTaskContainer" class="hidden items-center gap-2">
+                    <input type="checkbox" id="t_temp" class="rounded bg-[#0d1117] border-[#30363d]">
+                    <label for="t_temp" class="text-xs text-[#8b949e]">Temporary Task (Delete after execution)</label>
+                </div>
+            </div>
+
+            <form id="modalForm" onsubmit="saveTask(event)" class="p-6 space-y-4">
+                <div id="endDateContainer" class="hidden">
+                    <label class="block text-xs font-semibold text-[#8b949e] uppercase mb-1">End Date</label>
+                    <input type="date" id="end_date" class="w-full bg-[#0d1117] border border-[#30363d] rounded p-2 text-white focus:outline-none focus:border-blue-500">
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-[#8b949e] uppercase mb-1">Task Unique ID</label>
+                        <input type="text" id="t_id" required class="w-full bg-[#0d1117] border border-[#30363d] rounded p-2 text-white focus:outline-none focus:border-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-[#8b949e] uppercase mb-1">Trigger Type</label>
+                        <select id="t_trigger" onchange="toggleTriggerFields()" class="w-full bg-[#0d1117] border border-[#30363d] rounded p-2 text-white focus:outline-none focus:border-blue-500">
+                            <option value="cron">cron</option>
+                            <option value="date">date</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-[#8b949e] uppercase mb-1">Target Function</label>
+                        <select id="t_func" class="w-full bg-[#0d1117] border border-[#30363d] rounded p-2 text-white focus:outline-none focus:border-blue-500">
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-[#8b949e] uppercase mb-1">Description / Role</label>
+                        <textarea id="t_desc" rows="1" class="w-full bg-[#0d1117] border border-[#30363d] rounded p-2 text-white focus:outline-none focus:border-blue-500"></textarea>
+                    </div>
+                </div>
+
+                <div id="cronFields" class="p-4 bg-[#0d1117] border border-[#21262d] rounded-lg space-y-3">
+                    <span class="text-xs font-bold text-white block">Cron Parameters (APScheduler)</span>
+                    <div class="grid grid-cols-3 gap-2">
+                        <div>
+                            <div class="flex items-center gap-1 relative group">
+                                <label class="text-[10px] text-[#8b949e] uppercase select-none">Day of Week</label>
+                                <span class="text-[10px] bg-[#30363d] text-[#c9d1d9] w-3.5 h-3.5 rounded-full flex items-center justify-center cursor-help font-bold">?</span>
+                                <div class="hidden group-hover:block absolute bottom-full left-0 mb-2 w-64 bg-[#21262d] text-xs text-[#c9d1d9] p-3 rounded-lg border border-[#30363d] shadow-xl z-50 whitespace-pre-line font-sans leading-tight"><strong class="text-white block">Day of Week formats:</strong>0-6 (0=Sunday, 6=Saturday)
+                mon,tue,wed,thu,fri,sat,sun (names)
+                1,3,5 (specific days)
+                */2 (every 2 days)
+                * (every day)
+                mon-fri (ranges)
+                mon,wed,fri (multiple specific days)</div>
+                            </div>
+                            <input type="text" id="c_dow" value="*" class="w-full bg-[#161b22] border border-[#30363d] rounded p-1 text-center text-white text-sm mt-1">
+                        </div>
+                        <div>
+                            <label class="text-[10px] text-[#8b949e] uppercase block h-3.5 select-none">Hour</label>
+                            <input type="text" id="c_hour" value="0" class="w-full bg-[#161b22] border border-[#30363d] rounded p-1 text-center text-white text-sm mt-1">
+                        </div>
+                        <div>
+                            <label class="text-[10px] text-[#8b949e] uppercase block h-3.5 select-none">Minute</label>
+                            <input type="text" id="c_min" value="0" class="w-full bg-[#161b22] border border-[#30363d] rounded p-1 text-center text-white text-sm mt-1">
+                        </div>
+                    </div>
+                </div>
+
+                <div id="dateFields" class="p-4 bg-[#0d1117] border border-[#21262d] rounded-lg hidden">
+                    <label class="block text-xs font-semibold text-[#8b949e] uppercase mb-1">Date and Time</label>
+                    <input type="datetime-local" id="t_date" class="w-full bg-[#161b22] border border-[#30363d] rounded p-2 text-white text-sm">
+                </div>
+
+                <div>
+                    <span class="text-xs font-bold text-white block mb-2">Function Arguments</span>
+                    <div id="argsContainer" class="space-y-2">
+                    </div>
+                </div>
+
+                <div class="pt-4 border-t border-[#21262d] flex flex-wrap gap-2 items-center justify-between">
+                    <div class="flex gap-2">
+                        <button type="submit" class="bg-blue-600 hover:bg-blue-500 text-white font-semibold px-4 py-2 rounded text-sm transition-colors">Save</button>
+                        <button type="button" id="resetRescheduleBtn" onclick="resetReschedule()" class="hidden bg-amber-600 hover:bg-amber-500 text-white font-semibold px-4 py-2 rounded text-sm transition-colors">Reset</button>
+                    </div>
+                    <button type="button" onclick="closeModal()" class="bg-[#21262d] hover:bg-[#30363d] text-white font-semibold px-4 py-2 rounded text-sm transition-colors">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        let API_URL = "http://localhost:8888";
+        let tasksData = [];
+        let functionsData = {};
+        let currentMode = "add";
+        let selectedTaskId = null;
+        let daysToShow = 7;
+
+        async function init() {
+            try {
+                const configRes = await fetch('/api/config');
+                if (configRes.ok) {
+                    const configData = await configRes.json();
+                    API_URL = configData.api_url;
+                }
+            } catch(e) {
+                console.error("Could not load dynamic API_URL config, using default", e);
+            }
+
+            await fetchConfig();
+            await fetchFunctions();
+            await refreshData();
+            
+            document.getElementById('daysToShow').addEventListener('change', async (e) => {
+                daysToShow = parseInt(e.target.value) || 7;
+                try {
+                    await fetch(`${API_URL}/config`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ days_to_show: daysToShow })
+                    });
+                } catch(e){}
+                render();
+            });
+        }
+
+        async function fetchConfig() {
+            try {
+                const res = await fetch(`${API_URL}/config`);
+                if (res.ok) {
+                    const data = await res.json();
+                    daysToShow = data.days_to_show || 7;
+                }
+            } catch(e) { daysToShow = 7; }
+            document.getElementById('daysToShow').value = daysToShow;
+        }
+
+        async function fetchFunctions() {
+            try {
+                const res = await fetch('/function_docs.json');
+                if (res.ok) {
+                    const data = await res.json();
+                    functionsData = data.functions || data || {};
+                    populateFunctionsDropdown();
+                }
+            } catch(e) { 
+                try {
+                    const resFallback = await fetch('function_docs.json');
+                    if (resFallback.ok) {
+                        const data = await resFallback.json();
+                        functionsData = data.functions || data || {};
+                        populateFunctionsDropdown();
+                    }
+                } catch(err) {
+                    functionsData = {}; 
+                }
+            }
+        }
+
+        function populateFunctionsDropdown() {
+            const select = document.getElementById('t_func');
+            select.innerHTML = '';
+            Object.keys(functionsData).forEach(funcName => {
+                const opt = document.createElement('option');
+                opt.value = funcName;
+                opt.textContent = funcName;
+                select.appendChild(opt);
+            });
+            select.addEventListener('change', () => renderArgInputs());
+        }
+
+        async function refreshData() {
+            try {
+                const res = await fetch(`${API_URL}/tasks`);
+                if (res.ok) {
+                    const data = await res.json();
+                    let tasksDict = data.tasks || {};
+                    if (Array.isArray(tasksDict)) {
+                        tasksData = tasksDict;
+                    } else {
+                        tasksData = [];
+                        for (let id in tasksDict) {
+                            let item = tasksDict[id];
+                            if (typeof item === 'object') {
+                                item.id = id;
+                                tasksData.push(item);
+                            }
+                        }
+                    }
+                }
+            } catch (e) { console.error("Error fetching tasks", e); }
+            render();
+        }
+
+        function switchTab(tab) {
+            const calBtn = document.getElementById('tabCalBtn');
+            const listBtn = document.getElementById('tabListBtn');
+            const calView = document.getElementById('calendarView');
+            const listView = document.getElementById('listView');
+
+            if (tab === 'calendar') {
+                calBtn.className = "py-2 px-4 border-b-2 border-blue-500 text-white font-medium text-sm flex items-center gap-2";
+                listBtn.className = "py-2 px-4 border-b-2 border-transparent text-[#8b949e] hover:text-white font-medium text-sm flex items-center gap-2";
+                calView.classList.replace('hidden', 'block');
+                listView.classList.replace('block', 'hidden');
+            } else {
+                listBtn.className = "py-2 px-4 border-b-2 border-blue-500 text-white font-medium text-sm flex items-center gap-2";
+                calBtn.className = "py-2 px-4 border-b-2 border-transparent text-[#8b949e] hover:text-white font-medium text-sm flex items-center gap-2";
+                listView.classList.replace('hidden', 'block');
+                calView.classList.replace('block', 'hidden');
+            }
+        }
+
+        function isTaskOnDay(task, targetDate) {
+            const triggerType = task.trigger_type;
+            if (triggerType === 'date') {
+                const runDateStr = task.date || task.run_date;
+                if (!runDateStr) return false;
+                const taskDate = new Date(runDateStr).toDateString();
+                return taskDate === targetDate.toDateString();
+            } else if (triggerType === 'cron') {
+                const cron = task.cron || {};
+                const dowStr = String(cron.day_of_week || "*");
+                if (dowStr === "*") return true;
+                try {
+                    let validDays = [];
+                    dowStr.split(',').forEach(part => {
+                        if (part.includes('-')) {
+                            const [start, end] = part.split('-').map(Number);
+                            for(let d=start; d<=end; d++) validDays.push(d);
+                        } else { validDays.push(Number(part)); }
+                    });
+                    let currentDow = targetDate.getDay() - 1; 
+                    if (currentDow === -1) currentDow = 6; 
+                    return validDays.includes(currentDow);
+                } catch(e) { return false; }
+            }
+            return false;
+        }
+
+        function getTaskSortKey(t) {
+            if (t.trigger_type === 'cron' && t.cron) {
+                let h = String(t.cron.hour || "00").padStart(2, '0');
+                let m = String(t.cron.minute || "00").padStart(2, '0');
+                if (h.includes('*')) h = "00";
+                if (m.includes('*')) m = "00";
+                return `${h}:${m}`;
+            } else {
+                const dStr = t.date || t.run_date;
+                if (dStr) {
+                    const d = new Date(dStr);
+                    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+                }
+            }
+            return "23:59";
+        }
+
+        function getGlobalSkipIndex(targetTaskId, targetDate) {
+            let chronology = [];
+            for (let i = 0; i < 7; i++) {
+                let dayDate = new Date();
+                dayDate.setDate(dayDate.getDate() + i);
+                let todaysTasks = tasksData.filter(t => isTaskOnDay(t, dayDate));
+                todaysTasks.sort((a, b) => getTaskSortKey(a).localeCompare(getTaskSortKey(b)));
+                todaysTasks.forEach(t => {
+                    chronology.push({ date: dayDate.toDateString(), id: t.id });
+                });
+            }
+            let targetOccurrences = chronology.filter(item => item.id === targetTaskId);
+            let idx = targetOccurrences.findIndex(occ => occ.date === targetDate.toDateString());
+            return idx !== -1 ? idx : 0;
+        }
+
+        function render() {
+            renderCalendar();
+            renderList();
+        }
+
+        function renderCalendar() {
+            const grid = document.getElementById('calendarGrid');
+            grid.innerHTML = '';
+            
+            grid.className = `grid grid-cols-1 md:grid-cols-3 lg:grid-cols-${daysToShow} gap-4 items-start`;
+
+            const today = new Date();
+            const locales = 'en-US'; 
+            const options = { weekday: 'long', day: 'numeric', month: 'numeric' };
+
+            for (let i = 0; i < daysToShow; i++) {
+                const dayDate = new Date();
+                dayDate.setDate(today.getDate() + i);
+                const dayLabel = dayDate.toLocaleDateString(locales, options);
+
+                const col = document.createElement('div');
+                col.className = "flex flex-col gap-3 min-w-[180px]";
+                
+                let todaysTasks = tasksData.filter(t => isTaskOnDay(t, dayDate));
+                todaysTasks.sort((a, b) => getTaskSortKey(a).localeCompare(getTaskSortKey(b)));
+
+                let tasksHTML = '';
+                todaysTasks.forEach((task, tIdx) => {
+                    const stateStr = task.state || 'active';
+                    const statusStr = task.status || 'active';
+                    const skips = task.skip_next || [];
+                    const skipTarget = getGlobalSkipIndex(task.id, dayDate);
+                    
+                    // Vérification si cette instance spécifique sur le calendrier est sautée
+                    const isSkipped = skips.includes(skipTarget);
+                    
+                    let heureRun = "--:--";
+
+                    if (task.trigger_type === 'cron' && task.cron) {
+                        let h = task.cron.hour || '00';
+                        let m = task.cron.minute || '00';
+                        let dow = task.cron.day_of_week || '*';
+                        heureRun = `${h}h${m}`;
+                        if (dow !== '*') heureRun += ` (J: ${dow})`;
+                    } else {
+                        const dStr = task.date || task.run_date;
+                        if (dStr) {
+                            const d = new Date(dStr);
+                            heureRun = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+                        }
+                    }
+
+                    let cardStyles = "p-3 rounded-lg border border-[#30363d] h-[140px] flex flex-col justify-between gap-1 overflow-hidden shrink-0 border-l-[5px] ";
+                    let badgeText = statusStr;
+
+                    if (isSkipped) {
+                        cardStyles += "bg-[#1f242c] border-l-[#8b949e] opacity-40 line-through";
+                        badgeText = "⏭️ Skipped";
+                    } else if (statusStr === 'err') {
+                        cardStyles += "bg-[#261a1a] border-l-[#ff5a5a]";
+                    } else if (statusStr === 'pause' || statusStr === 'paused') {
+                        cardStyles += "bg-[#26211a] border-l-[#ffa23e]";
+                    } else if (stateStr === 'rescheduled') {
+                        cardStyles += "bg-[#1a2620] border-l-[#56d364] rescheduled-pattern";
+                    } else {
+                        cardStyles += "bg-[#1a2620] border-l-[#56d364]";
+                    }
+
+                    const fullFunc = task.function || '.';
+                    const funcName = fullFunc.includes('.') ? fullFunc.split('.')[1] : fullFunc;
+                    const displayDesc = (task.description || '').trim() || '&nbsp;';
+                    const iconPlayPause = (statusStr === 'pause') ? "▶️" : "⏸️";
+
+                    tasksHTML += `
+                        <div class="bg-[#161b22] border border-[#21262d] rounded-xl p-2 flex flex-col gap-2">
+                            <div class="${cardStyles}">
+                                <div class="text-[10px] font-bold tracking-wider uppercase">${badgeText}</div>
+                                <div class="text-base font-bold text-white truncate" title="${task.id}">${task.id}</div>
+                                <div class="text-xs truncate">⚙️ ${funcName}()</div>
+                                <div class="text-xs truncate">🕒 ${heureRun}</div>
+                                <div class="text-xs text-[#8b949e] line-clamp-2">${displayDesc}</div>
+                            </div>
+                            <div class="grid grid-cols-4 gap-1 text-center">
+                                <button onclick="togglePause('${task.id}', '${statusStr}')" class="p-1 hover:bg-[#21262d] rounded transition-colors text-xs">${iconPlayPause}</button>
+                                <button onclick="skipTask('${task.id}', ${skipTarget})" class="p-1 hover:bg-[#21262d] rounded transition-colors text-xs ${isSkipped ? 'bg-blue-900/40 text-blue-400' : ''}" title="Skip next instance">⏭️</button>
+                                <button onclick="openModal('edit', '${task.id}')" class="p-1 hover:bg-[#21262d] rounded transition-colors text-xs">📝</button>
+                                <button onclick="deleteTask('${task.id}')" class="p-1 hover:bg-[#21262d] rounded transition-colors text-xs">🗑️</button>
+                            </div>
+                        </div>
+                    `;
+                });
+
+                col.innerHTML = `
+                    <div class="text-sm font-bold border-b border-[#21262d] pb-2 text-white capitalize text-center">${dayLabel}</div>
+                    <div class="flex flex-col gap-2">${tasksHTML || '<div class="text-xs text-[#484f58] text-center italic py-4">No tasks</div>'}</div>
+                `;
+                grid.appendChild(col);
+            }
+        }
+
+        function renderList() {
+            const tbody = document.getElementById('listTableBody');
+            tbody.innerHTML = '';
+
+            if (tasksData.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-[#8b949e] italic">No configured tasks.</td></tr>`;
+                return;
+            }
+
+            tasksData.forEach((task, idx) => {
+                const tr = document.createElement('tr');
+                let triggerHTML = '';
+                if (task.trigger_type === 'cron') {
+                    const c = task.cron || {};
+                    const desc = `${c.minute || '*'} ${c.hour || '*'} ${c.day || '*'} ${c.month || '*'} ${c.day_of_week || '*'}`;
+                    triggerHTML = `🤖 <strong>Cron</strong>: <code class="bg-[#0d1117] px-1 rounded">${desc}</code>`;
+                } else {
+                    const dStr = task.run_date || task.date || '';
+                    triggerHTML = `📅 <strong>Unique</strong>: <code class="bg-[#0d1117] px-1 rounded">${dStr.substring(0, 16)}</code>`;
+                }
+
+                const argsHTML = task.args && task.args.length ? `<code class="bg-[#0d1117] px-1 rounded text-xs">[${task.args.join(', ')}]</code>` : `<span class="text-[#484f58]">None</span>`;
+                const status = task.state || 'ok';
+                const dotColor = (status === 'ok' || status === 'active') ? '#56d364' : '#ffa23e';
+                const iconPlayPause = (task.status === 'pause') ? "▶️" : "⏸️";
+
+                tr.innerHTML = `
+                    <td class="p-4 font-mono font-bold text-white">${task.id}</td>
+                    <td class="p-4">${triggerHTML}</td>
+                    <td class="p-4">${argsHTML}</td>
+                    <td class="p-4"><span style="color: ${dotColor}">●</span> ${status.charAt(0).toUpperCase() + status.slice(1)}</td>
+                    <td class="p-4 text-right">
+                        <div class="flex justify-end gap-2">
+                            <button onclick="togglePause('${task.id}', '${task.status}')" class="p-1.5 bg-[#21262d] hover:bg-[#30363d] rounded text-xs">${iconPlayPause}</button>
+                            <button onclick="openModal('edit', '${task.id}')" class="p-1.5 bg-[#21262d] hover:bg-[#30363d] rounded text-xs">📝</button>
+                            <button onclick="deleteTask('${task.id}')" class="p-1.5 bg-[#21262d] hover:bg-[#30363d] rounded text-xs">🗑️</button>
+                        </div>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        async function togglePause(id, currentStatus) {
+            const endpoint = (currentStatus === 'pause') ? 'resume' : 'pause';
+            await fetch(`${API_URL}/tasks/${id}/${endpoint}`, { method: 'POST' });
+            refreshData();
+        }
+
+        async function skipTask(id, target) {
+            const res = await fetch(`${API_URL}/tasks/${id}/skip/${target}`, { method: 'POST' });
+            if (res.ok) refreshData();
+        }
+
+        async function deleteTask(id) {
+            if(confirm(`Delete task ${id}?`)) {
+                await fetch(`${API_URL}/tasks/${id}`, { method: 'DELETE' });
+                refreshData();
+            }
+        }
+
+        function openModal(mode, id = null) {
+            currentMode = mode;
+            selectedTaskId = id;
+            
+            const modal = document.getElementById('taskModal');
+            const form = document.getElementById('modalForm');
+            const t_id_input = document.getElementById('t_id');
+            const t_trigger_select = document.getElementById('t_trigger');
+            const title = document.getElementById('modalTitle');
+            const tempTaskContainer = document.getElementById('tempTaskContainer');
+            const resetBtn = document.getElementById('resetRescheduleBtn');
+
+            form.reset();
+            modal.classList.replace('hidden', 'flex');
+
+            let task = null;
+            if (mode === 'edit' && id) {
+                task = tasksData.find(t => t.id === id);
+                title.textContent = "Edit Task";
+                t_id_input.value = id;
+                t_id_input.disabled = true;
+                t_trigger_select.value = task.trigger_type;
+                t_trigger_select.disabled = true;
+                document.getElementById('t_func').value = task.function || '';
+                document.getElementById('t_desc').value = task.description || '';
+
+                const isCron = task.trigger_type === 'cron';
+                const isRescheduled = task.state === 'rescheduled';
+
+                if (isCron) {
+                    tempTaskContainer.classList.replace('hidden', 'flex');
+                    document.getElementById('t_temp').checked = isRescheduled ? true : (task.temporary || false);
+                    document.getElementById('t_temp').disabled = isRescheduled;
+                } else {
+                    tempTaskContainer.classList.replace('flex', 'hidden');
+                }
+                
+                console.log("=== Debug Edit Task ===");
+                console.log("Task object:", task);
+                console.log("Task end_date property:", task ? task.end_date : "undefined");
+                
+                if (isRescheduled) resetBtn.classList.remove('hidden');
+                else resetBtn.classList.add('hidden');
+
+                if (isRescheduled && task.end_date) {
+                    document.getElementById('end_date').value = task.end_date.substring(0, 10);
+                }
+
+                if (isCron && task.cron) {
+                    document.getElementById('c_min').value = task.cron.minute || '0';
+                    document.getElementById('c_hour').value = task.cron.hour || '0';
+                    document.getElementById('c_dow').value = task.cron.day_of_week || '*';
+                } else if (task.date || task.run_date) {
+                    const rawD = task.date || task.run_date;
+                    document.getElementById('t_date').value = rawD.substring(0, 16);
+                }
+            } else {
+                title.textContent = "Add New Task";
+                t_id_input.disabled = false;
+                t_trigger_select.disabled = false;
+                tempTaskContainer.classList.replace('flex', 'hidden');
+                resetBtn.classList.add('hidden');
+                
+                let tomorrow = new Date();
+                tomorrow.setDate(tomorrow.getDate() + 1);
+                document.getElementById('t_date').value = tomorrow.toISOString().substring(0, 16);
+            }
+
+            toggleTriggerFields();
+            renderArgInputs(task);
+        }
+
+        function closeModal() {
+            document.getElementById('taskModal').classList.replace('flex', 'hidden');
+        }
+
+        function toggleTriggerFields() {
+            const trigger = document.getElementById('t_trigger').value;
+            const cronFields = document.getElementById('cronFields');
+            const dateFields = document.getElementById('dateFields');
+            const t_temp = document.getElementById('t_temp').checked;
+            const endDateContainer = document.getElementById('endDateContainer');
+
+            if (trigger === 'cron') {
+                cronFields.classList.remove('hidden');
+                dateFields.classList.add('hidden');
+                if (currentMode === 'edit' && t_temp) endDateContainer.classList.remove('hidden');
+                else endDateContainer.classList.add('hidden');
+            } else {
+                cronFields.classList.add('hidden');
+                dateFields.classList.remove('hidden');
+                endDateContainer.classList.add('hidden');
+            }
+        }
+
+        document.getElementById('t_temp').addEventListener('change', toggleTriggerFields);
+
+        function renderArgInputs(task = null) {
+            const funcName = document.getElementById('t_func').value;
+            const container = document.getElementById('argsContainer');
+            container.innerHTML = '';
+
+            if (!functionsData[funcName]) return;
+
+            const argsMeta = functionsData[funcName].args || [];
+            if (argsMeta.length === 0) {
+                container.innerHTML = `<p class="text-xs text-[#8b949e] italic">This function takes no required arguments.</p>`;
+                return;
+            }
+
+            argsMeta.forEach((arg, idx) => {
+                let defaultVal = "";
+                if (task && task.args && task.args[idx] !== undefined) {
+                    defaultVal = String(task.args[idx]);
+                } else if (arg.example !== undefined) {
+                    defaultVal = String(arg.example).replace(/^['"]|['"]$/g, '');
+                }
+
+                const wrapper = document.createElement('div');
+                wrapper.innerHTML = `
+                    <label class="text-xs text-[#8b949e] block mb-1">Argument: ${arg.name}</label>
+                    <input type="text" data-arg-idx="${idx}" value="${defaultVal}" class="arg-input w-full bg-[#0d1117] border border-[#30363d] rounded p-1.5 text-white text-sm">
+                `;
+                container.appendChild(wrapper);
+            });
+        }
+
+        async function saveTask(e) {
+            e.preventDefault();
+            const id = document.getElementById('t_id').value.trim();
+            const trigger = document.getElementById('t_trigger').value;
+            const t_temp = document.getElementById('t_temp').checked;
+            
+            if (currentMode === 'edit' && trigger === 'cron' && t_temp && document.getElementById('end_date').value) {
+                const resData = {
+                    new_cron_params: {
+                        minute: document.getElementById('c_min').value,
+                        hour: document.getElementById('c_hour').value,
+                        day_of_week: document.getElementById('c_dow').value
+                    },
+                    end_date: document.getElementById('end_date').value + "T00:00:00"
+                };
+                const res = await fetch(`${API_URL}/tasks/${selectedTaskId}/reschedule`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(resData)
+                });
+                if(res.ok) { closeModal(); refreshData(); }
+                return;
+            }
+
+            const argsInputs = document.querySelectorAll('.arg-input');
+            let argsList = [];
+            argsInputs.forEach(input => {
+                argsList.push(input.value);
+            });
+
+            const currentTask = tasksData.find(t => t.id === selectedTaskId) || {};
+
+            let payload = {
+                id: id,
+                function: document.getElementById('t_func').value,
+                description: document.getElementById('t_desc').value,
+                trigger_type: trigger,
+                temporary: t_temp,
+                cron: null,
+                date: null,
+                args: argsList,
+                state: currentTask.state || "active",
+                status: currentTask.status || "active",
+                skip_next: currentTask.skip_next || []
+            };
+
+            if (trigger === 'cron') {
+                payload.cron = {
+                    minute: document.getElementById('c_min').value,
+                    hour: document.getElementById('c_hour').value,
+                    day: "*",
+                    month: "*",
+                    day_of_week: document.getElementById('c_dow').value
+                };
+            } else {
+                const dateInput = document.getElementById('t_date').value;
+                if (dateInput) {
+                    const localDate = new Date(dateInput);
+                    const timezoneOffset = localDate.getTimezoneOffset() * 60000;
+                    const localISOTime = new Date(localDate.getTime() - timezoneOffset).toISOString().slice(0, 19);
+                    
+                    payload.date = localISOTime;
+                    payload.run_date = localISOTime;
+                } else {
+                    payload.date = "";
+                    payload.run_date = "";
+                }
+            }
+
+            const method = (currentMode === 'add') ? 'POST' : 'PUT';
+            const url = (currentMode === 'add') ? `${API_URL}/tasks` : `${API_URL}/tasks/${selectedTaskId}`;
+
+            const res = await fetch(url, {
+                method: method,
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            });
+
+            if (res.ok) { closeModal(); refreshData(); }
+        }
+
+        async function resetReschedule() {
+            const res = await fetch(`${API_URL}/tasks/${selectedTaskId}/reset-reschedule`, { method: 'POST' });
+            if (res.ok) { closeModal(); refreshData(); }
+        }
+
+        window.onload = init;
+    </script>
+</body>
+</html>

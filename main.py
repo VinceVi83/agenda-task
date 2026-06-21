@@ -6,7 +6,11 @@ import ast
 import json
 from datetime import datetime
 from typing import List, Dict, Any
+from config_loader import cfg_agendata_task, setup_logging
 
+import logging
+setup_logging()
+logger = logging.getLogger(__name__)
 
 def extract_function_info(node: ast.FunctionDef) -> Dict[str, Any]:
     func_info = {
@@ -49,6 +53,7 @@ def analyze_python_file(filepath: str) -> Dict[str, Dict[str, Any]]:
             source_code = file.read()
         tree = ast.parse(source_code)
         module_name = os.path.splitext(os.path.basename(filepath))[0]
+        module_dir = os.path.dirname(os.path.abspath(filepath))
         
         for node in ast.walk(tree):
             if isinstance(node, ast.FunctionDef):
@@ -57,10 +62,11 @@ def analyze_python_file(filepath: str) -> Dict[str, Dict[str, Any]]:
                 full_name = f"{module_name}.{node.name}"
                 func_info = extract_function_info(node)
                 func_info['module'] = module_name
+                func_info['path'] = module_dir
                 functions[full_name] = func_info
         
     except Exception as e:
-        print(f"Warning: Could not analyze {filepath}: {e}")
+        logger.warning(f"Warning: Could not analyze {filepath}: {e}")
     
     return functions
 
@@ -70,11 +76,11 @@ def generate_function_docs(files: List[str]) -> Dict[str, Any]:
     
     for filepath in files:
         if os.path.exists(filepath) and filepath.endswith('.py'):
-            print(f"Analyzing {filepath}...")
+            logger.info(f"Analyzing {filepath}...")
             functions = analyze_python_file(filepath)
             all_functions.update(functions)
         else:
-            print(f"Warning: File {filepath} does not exist or is not a Python file")
+            logger.warning(f"Warning: File {filepath} does not exist or is not a Python file")
     
     function_docs = {
         'version': '1.0',
@@ -86,27 +92,27 @@ def generate_function_docs(files: List[str]) -> Dict[str, Any]:
 
 
 def generate_doc():
-    default_files = ['mcp_server.py']
+    default_files = cfg_agendata_task.system.mcp
     function_docs = generate_function_docs(default_files)
     output_file = 'function_docs.json'
     try:
         with open(output_file, 'w', encoding='utf-8') as f:
             json.dump(function_docs, f, indent=4, ensure_ascii=False)
-        print(f"Successfully generated {output_file}")
-        print(f"Found {len(function_docs['functions'])} functions")
+        logger.info(f"Successfully generated {output_file}")
+        logger.info(f"Found {len(function_docs['functions'])} functions")
     except Exception as e:
-        print(f"Error writing {output_file}: {e}")
+        logger.error(f"Error writing {output_file}: {e}")
         sys.exit(1)
 
 def main():
-    print("Starting all orchestrator services...")
+    logger.info("Starting all orchestrator services...")
     generate_doc()
     backend_process = None
     frontend_process = None
     
     try:
         backend_process = subprocess.Popen(
-            [sys.executable, "-m", "uvicorn", "fast_api:app", "--host", "0.0.0.0", "--port", "8888"],
+            [sys.executable, "-m", "uvicorn", "fast_api:app", "--host", "0.0.0.0", "--port", f'{cfg_agendata_task.system.port}'],
             stdout=None,
             stderr=None
         )
@@ -121,13 +127,12 @@ def main():
         
         while True:
             if backend_process.poll() is not None:
-                print("Backend stopped unexpectedly.")
+                logger.info("Backend stopped unexpectedly.")
                 break
             if frontend_process.poll() is not None:
-                print("Frontend stopped unexpectedly.")
+                logger.info("Frontend stopped unexpectedly.")
                 break
             time.sleep(1)
-            
     except KeyboardInterrupt:
         pass
     finally:

@@ -2,8 +2,15 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Dict, Any, Optional, List
+from fastapi.responses import FileResponse, JSONResponse
+import json
 import sys
 import os
+
+from config_loader import cfg_agendata_task
+
+import logging
+logger = logging.getLogger(__name__)
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
@@ -34,6 +41,7 @@ class Task(BaseModel):
     status: Optional[str] = "ok"
     state: Optional[str] = "active"
     skip_next: Optional[List[int]] = []
+    end_date: Optional[str] = None
 
 class TaskResponse(BaseModel):
     success: bool
@@ -244,6 +252,23 @@ def shutdown_scheduler():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error shutting down scheduler: {str(e)}")
 
+from fastapi.responses import FileResponse
+
+@app.get("/gui", tags=["General"])
+def serve_gui():
+    return FileResponse("index.html")
+
+@app.get("/function_docs.json", tags=["General"])
+def serve_function_docs():
+    if os.path.exists("function_docs.json"):
+        with open("function_docs.json", "r", encoding="utf-8") as f:
+            return JSONResponse(content=json.load(f))
+    return JSONResponse(content={"functions": {}}, status_code=404)
+
+@app.get("/api/config", tags=["General"])
+def get_ui_config():
+    return {"api_url": f"http://localhost:{cfg_agendata_task.system.port}"}
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8888)
+    uvicorn.run(app, host="0.0.0.0", port=cfg_agendata_task.system.port)
