@@ -61,7 +61,7 @@ def fastapi_server(request):
         backup_file = parent_tasks_json + '.bak'
         shutil.copy(parent_tasks_json, backup_file)
     
-    cmd = [os.path.expanduser('~/project_envs/main/bin/python'), 'fast_api.py']
+    cmd = [sys.executable, 'fast_api.py']
     cwd = PARENT_DIR
     
     process = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)

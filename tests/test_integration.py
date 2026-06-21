@@ -23,8 +23,7 @@ def test_1_one_shot_date_task():
     filepath = f'/tmp/test_{task_id}.txt'
     
     now = datetime.now()
-    run_date = (now + timedelta(minutes=1)).replace(second=0, microsecond=0).isoformat()
-    
+    run_date = (now + timedelta(seconds=20)).replace(microsecond=0).isoformat()
     task = create_task(task_id, 'date')
     task['run_date'] = run_date
     
@@ -47,7 +46,7 @@ def test_1_one_shot_date_task():
     tasks = make_api_request('GET', '/tasks').json().get('tasks', [])
     assert any(t['id'] == task_id for t in tasks), "Task not found"
     
-    assert wait_for_file(filepath, timeout=120), "File not created"
+    assert wait_for_file(filepath, timeout=30), "Execution failed"
     make_api_request('DELETE', f'/tasks/{task_id}')
 
 
@@ -78,7 +77,7 @@ def test_3_reschedule_with_expiry():
     task = create_task(task_id, 'cron', cron={'minute': '*', 'hour': '*', 'day': '*', 'month': '*', 'day_of_week': '*'})
     make_api_request('POST', '/tasks', data=task)
     
-    res_data = {'new_cron_params': {'minute': '*/2'}, 'end_date': '2030-01-01T00:00:00'}
+    res_data = {'new_cron_params': {'minute': '*/2', 'hour': '*'}, 'end_date': '2030-01-01T00:00:00'}
     resp = make_api_request('POST', f'/tasks/{task_id}/reschedule', data=res_data)
     assert resp and resp.status_code == 200, "Reschedule failed"
     

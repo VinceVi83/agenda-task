@@ -53,8 +53,11 @@ def run_single_test(test_num, load_test, parallel_mode=False):
             logger.info(f"Invalid test number: {test_num}")
             return False
     
-    python_cmd = [os.path.expanduser('~/project_envs/main/bin/python'), '-m', 'pytest'] + cmd[1:]
-    result = subprocess.run(python_cmd, cwd=os.path.dirname(os.path.abspath(__file__)))
+    python_cmd = [sys.executable, '-m', 'pytest'] + cmd[1:]
+    env = os.environ.copy()
+    parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    env['PYTHONPATH'] = parent_dir + os.pathsep + env.get('PYTHONPATH', '')
+    result = subprocess.run(python_cmd, cwd=os.path.dirname(os.path.abspath(__file__)), env=env)
     
     return result.returncode == 0
 
@@ -139,7 +142,7 @@ def start_fastapi_server():
         except:
             pass
         
-        cmd = [os.path.expanduser('~/project_envs/main/bin/python'), 'fast_api.py']
+        cmd = [sys.executable, 'fast_api.py']
         cwd = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         process = subprocess.Popen(
             cmd, 

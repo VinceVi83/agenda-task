@@ -7,9 +7,10 @@ import json
 import sys
 import os
 
-from config_loader import cfg_agendata_task
+from config_loader import cfg_agendata_task, setup_logging
 
 import logging
+setup_logging()
 logger = logging.getLogger(__name__)
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))

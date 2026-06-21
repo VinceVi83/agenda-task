@@ -639,24 +639,51 @@
             const id = document.getElementById('t_id').value.trim();
             const trigger = document.getElementById('t_trigger').value;
             const t_temp = document.getElementById('t_temp').checked;
-            
-            if (currentMode === 'edit' && trigger === 'cron' && t_temp && document.getElementById('end_date').value) {
+            const endDateInput = document.getElementById('end_date');
+            if (currentMode === 'edit' && trigger === 'cron' && t_temp) { 
+                if (!endDateInput.value || endDateInput.value.trim() === "") {
+                    endDateInput.classList.remove('border-[#30363d]');
+                    endDateInput.classList.add('border-red-500', 'focus:border-red-500');
+                    endDateInput.focus();
+                    alert("Error: You must specify an 'End Date' when the task is temporary.");
+                    return;
+                }
+
+                endDateInput.classList.remove('border-red-500', 'focus:border-red-500');
+                endDateInput.classList.add('border-[#30363d]');
+
                 const resData = {
                     new_cron_params: {
                         minute: document.getElementById('c_min').value,
                         hour: document.getElementById('c_hour').value,
                         day_of_week: document.getElementById('c_dow').value
                     },
-                    end_date: document.getElementById('end_date').value + "T00:00:00"
+                    end_date: endDateInput.value + "T00:00:00"
                 };
-                const res = await fetch(`${API_URL}/tasks/${selectedTaskId}/reschedule`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify(resData)
-                });
-                if(res.ok) { closeModal(); refreshData(); }
-                return;
+                try {
+                    const res = await fetch(`${API_URL}/tasks/${selectedTaskId}/reschedule`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(resData)
+                    });
+                    if (res.ok) { 
+                        closeModal(); 
+                        await refreshData(); 
+                        return;
+                    } else {
+                        const errData = await res.json().catch(() => ({}));
+                        alert(`Backend Error (Reschedule): ${errData.message || 'Action failed.'}`);
+                        return;
+                    }
+                } catch (err) {
+                    console.error(err);
+                    alert("Network error during rescheduling.");
+                    return;
+                }
             }
+
+            endDateInput.classList.remove('border-red-500', 'focus:border-red-500');
+            endDateInput.classList.add('border-[#30363d]');
 
             const argsInputs = document.querySelectorAll('.arg-input');
             let argsList = [];
@@ -706,13 +733,24 @@
             const method = (currentMode === 'add') ? 'POST' : 'PUT';
             const url = (currentMode === 'add') ? `${API_URL}/tasks` : `${API_URL}/tasks/${selectedTaskId}`;
 
-            const res = await fetch(url, {
-                method: method,
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(payload)
-            });
+            try {
+                const res = await fetch(url, {
+                    method: method,
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
+                });
 
-            if (res.ok) { closeModal(); refreshData(); }
+                if (res.ok) { 
+                    closeModal(); 
+                    await refreshData(); 
+                } else {
+                    const errData = await res.json().catch(() => ({}));
+                    alert(`Backend Error (${method}): ${errData.message || 'Action failed.'}`);
+                }
+            } catch (err) {
+                console.error(err);
+                alert("Network error.");
+            }
         }
 
         async function resetReschedule() {

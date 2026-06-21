@@ -205,6 +205,7 @@ class scheduler:
             
             self.modify_task(task)
             logger.info(f"Task {task_id} rescheduled until {end_date}")
+            self._check_and_reset_expired_reschedule(task_id, task)
             
         except Exception as e:
             logger.error(f"Error during reschedule of task {task_id}: {e}")
@@ -267,9 +268,16 @@ class scheduler:
         except Exception as e:
             logger.error(f"Error during reschedule handling for task {task.get('id')}: {e}")
 
-    def _execute_task_wrapper(self, function_full_name, args=None, kwargs=None):
-        if args is None: args = []
-        if kwargs is None: kwargs = {}
+    def _execute_task_wrapper(self, task: Dict[str, Any]):
+        task_id = task.get('id')
+        if self._handle_skip_next(task):
+            if task_id:
+                self._check_and_reset_expired_reschedule(task_id, task)
+            return
+
+        function_full_name = task.get('function')
+        args = task.get('args', [])
+        kwargs = task.get('kwargs', {})
 
         if function_full_name not in self.functions:
             logger.error(f"Function {function_full_name} not found in registered functions.")
@@ -303,7 +311,7 @@ func(*{args}, **{kwargs})
 """
 
         try:
-            logger.info(f"Executing {function_full_name} via isolated subprocess...")
+            logger.info(f"Executing job {task_id} ({function_full_name}) via isolated subprocess...")
             
             process = subprocess.run(
                 [sys.executable, "-c", script_code],
@@ -319,6 +327,9 @@ func(*{args}, **{kwargs})
         except subprocess.CalledProcessError as e:
             logger.error(f"❌ Error during isolated execution of {function_full_name}:")
             logger.error(e.stderr)
+
+        if task_id:
+            self._check_and_reset_expired_reschedule(task_id, task)
 
     def _create_cron_trigger(self, cron_params: Dict[str, str]) -> CronTrigger:
         try:
@@ -380,7 +391,7 @@ func(*{args}, **{kwargs})
                 self._execute_task_wrapper,
                 trigger=trigger,
                 id=task_id,
-                args=[function_full_name, task_args, task_kwargs],
+                args=[task],
                 replace_existing=True
             )
             if not on_load:
@@ -514,7 +525,8 @@ func(*{args}, **{kwargs})
                 job = self.scheduler.get_job(task_id)
                 if job:
                     next_run_time = job.next_run_time
-                    if next_run_time and next_run_time >= end_date:
+                    now = datetime.now().astimezone() if end_date.tzinfo else datetime.now()
+                    if next_run_time is None or next_run_time >= end_date or now >= end_date:
                         logger.info(f"Rescheduled task {task_id} already expired, resetting")
                         self.reset_reschedule(task_id)
                         return True
