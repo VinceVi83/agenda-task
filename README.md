@@ -1,18 +1,16 @@
 # Scheduler API & Service Orchestrator
 
 ## Project Summary
-A lightweight task orchestrator with a FastAPI backend and Streamlit frontend. It features an APScheduler engine with an agenda-style calendar timeline, custom CSS card monitoring, and a backend script parser that extracts MCP tools to schedule them or execute them in APScheduler engine.
+A lightweight task orchestrator with a FastAPI backend and Streamlit frontend. It features an APScheduler engine with an agenda-style calendar timeline, card/task monitoring and a backend script parser that extracts MCP tools to schedule them or execute them in APScheduler engine.
 
 ---
 
 ## Features
 The system offers granular and robust management of the task lifecycle:
-* **Flexible Scheduling:** Native support for recurring triggers (`cron` with Europe/Paris timezone) and one-time execution (`date`).
-* **Hot Persistence:** Automatic saving of task state to `tasks.json` to survive service crashes or restarts.
-* **Dynamic Flow Control:** Immediate suspension (`pause`) and resumption (`resume`) of scheduled tasks on the fly.
-* **Temporary Reprogramming (Reschedule):** Temporary modification of a task's Cron parameters with an expiration date, with automatic restoration of original Cron once expiry is reached.
-* **Skip System:** Ability to associate skip tokens for skipping specific task occurrences, completed by an internal routine that decrements these values daily at 23:59.
-* **Dynamic Loading and Documentation:** Automatic importation of target functions by analyzing Python files via a utility script for metadata generation (`function_docs.json`).
+* **Automated Script Parsing & Tool Extraction:** Automatically scan and parse existing Python scripts to extract functions, making them instantly available for scheduling.
+* **Flexible Task Scheduling:** Easily schedule recurrent automated tasks (Cron-style) or one-off, punctual executions directly via an intuitive GUI.
+* **Granular Task Control (Micro-Management):** Take full control over your workload lifecycle with the ability to pause/resume tasks, skip specific executions, and apply temporary or permanent runtime modifications.
+* **Visual Monitoring & Timeline:** Keep track of your orchestrated services using an agenda-style calendar timeline and interactive task/card monitoring views.
 
 ---
 
@@ -32,7 +30,9 @@ The project is designed modularly, separating the user interface, control API, s
 ├── main.py                    # Unified startup script (Backend + Frontend)
 ├── fast_api.py                # REST API entry point (FastAPI)
 ├── scheduler.py               # Task scheduling engine (APScheduler)
-├── gui.py                     # User graphical interface (Streamlit)
+├── config_loader.py           # Loads environment variables
+├── gui.py                     # User graphical interface (Streamlit legacy)
+├── index.html                 # User graphical interface
 ├── mcp_server.py              # Server / Module containing test tasks (FastMCP)
 ├── tests/conftest.py          # Integration tests suite (Pytest)
 ├── tests/run_tests.py         # Integration tests suite (Pytest)
