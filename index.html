@@ -652,13 +652,17 @@
                 endDateInput.classList.remove('border-red-500', 'focus:border-red-500');
                 endDateInput.classList.add('border-[#30363d]');
 
+                const selectedDate = new Date(endDateInput.value);
+                selectedDate.setDate(selectedDate.getDate() + 1);
+                const inclusiveEndDateStr = selectedDate.toISOString().split('T')[0];
+
                 const resData = {
                     new_cron_params: {
                         minute: document.getElementById('c_min').value,
                         hour: document.getElementById('c_hour').value,
                         day_of_week: document.getElementById('c_dow').value
                     },
-                    end_date: endDateInput.value + "T00:00:00"
+                    end_date: inclusiveEndDateStr + "T00:00:00"
                 };
                 try {
                     const res = await fetch(`${API_URL}/tasks/${selectedTaskId}/reschedule`, {

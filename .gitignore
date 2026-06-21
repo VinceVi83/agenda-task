@@ -222,5 +222,5 @@ __marimo__/
 data
 *.png
 .aider*
-*.out
+nohup.out
 test.py
