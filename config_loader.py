@@ -1,11 +1,57 @@
 import sys
 import yaml
 import shutil
+import threading
+import requests
 from pathlib import Path
 from types import SimpleNamespace
+
 import logging
 logger = logging.getLogger(__name__)
 
+class Utils:
+    """Utility Functions for File Operations and Data Formatting
+    
+    Role: Provides helper methods for data formatting, and send message to discord (dllb).
+    
+    Methods:
+        format_result(result) : Format dict or other result as string.
+        enable_bypass() : Return bypass configuration flag.
+    """
+    @staticmethod
+    def format_result(result):
+        if isinstance(result, dict):
+            try:
+                formatted_items = []
+                for k, v in result.items():
+                    formatted_items.append(f"{k}:{v}")
+                return ",".join(formatted_items)
+            except Exception:
+                return str(result)
+        return str(result)
+
+    @staticmethod
+    def send_discord_notification(message, channel=None, files=None):
+        if getattr(cfg_agendata_task, 'discord', None) is None:
+            logger.info("Discord not configured")
+            return
+        def post_request():
+            try:
+                if channel is not None:
+                    channel_name = channel
+                else:
+                    channel_name = cfg_agendata_task.discord.channel
+                payload = {
+                    "channel_name": channel_name,
+                    "msg": message,
+                    "attachments": files if files else []
+                }
+                requests.post(f"http://{cfg_agendata_task.discord.host}:{cfg_agendata_task.discord.port}/send",
+                              json=payload,
+                              timeout=5)
+            except Exception as e:
+                pass
+        threading.Thread(target=post_request, daemon=True).start()
 
 class LocalFilesFilter(logging.Filter):
     
