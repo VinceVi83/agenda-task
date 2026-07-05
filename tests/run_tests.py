@@ -11,7 +11,7 @@ import requests
 import glob
 import os
 
-from config_loader import cfg_agendata_task, setup_logging
+from config_loader import cfg, setup_logging
 import logging
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -20,9 +20,7 @@ logger = logging.getLogger(__name__)
 def cleanup_test_files():
     test_files = glob.glob('/tmp/test_*.txt')
     perf_files = glob.glob('/tmp/perf_test_*.log')
-    
     files_to_remove = test_files + perf_files
-    
     for filepath in files_to_remove:
         try:
             os.remove(filepath)
@@ -31,13 +29,12 @@ def cleanup_test_files():
 
 def run_single_test(test_num, load_test, parallel_mode=False):
     cmd = ['pytest', 'test_integration.py', '-v', '-s']
-    
     if load_test:
         cmd.append('--load-test')
     if parallel_mode:
         cmd.append('-o')
         cmd.append('addopts=--disable-server-fixture')
-    
+
     if test_num:
         test_mapping = {
             1: 'test_integration.py::test_1_one_shot_date_task',
@@ -46,19 +43,16 @@ def run_single_test(test_num, load_test, parallel_mode=False):
             4: 'test_integration.py::test_4_reschedule_with_skip',
             5: 'test_integration.py::test_5_reschedule_and_reset'
         }
-        
         if test_num in test_mapping:
             cmd[1] = test_mapping[test_num]
         else:
             logger.info(f"Invalid test number: {test_num}")
             return False
-    
     python_cmd = [sys.executable, '-m', 'pytest'] + cmd[1:]
     env = os.environ.copy()
     parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     env['PYTHONPATH'] = parent_dir + os.pathsep + env.get('PYTHONPATH', '')
     result = subprocess.run(python_cmd, cwd=os.path.dirname(os.path.abspath(__file__)), env=env)
-    
     return result.returncode == 0
 
 def run_pytest_tests(test_num=None, load_test=False, parallel=False):
@@ -67,19 +61,16 @@ def run_pytest_tests(test_num=None, load_test=False, parallel=False):
         server_process = start_fastapi_server()
         if server_process is None:
             return False
-        
         try:
             logger.info("Running all tests in parallel...")
             test_numbers = [1, 2, 3, 4, 5]
-            
             with ThreadPoolExecutor(max_workers=len(test_numbers)) as executor:
                 futures = [executor.submit(run_single_test, num, load_test, True) for num in test_numbers]
                 
                 results = [future.result() for future in futures]
-            
+
             passed = sum(results)
             failed = len(results) - passed
-            
             logger.info(f"\n{'='*60}")
             logger.info(f"Parallel Test Results: {passed} passed, {failed} failed")
             logger.info(f"{'='*60}")
@@ -90,18 +81,15 @@ def run_pytest_tests(test_num=None, load_test=False, parallel=False):
                 4: 'RESCHEDULE WITH SKIP',
                 5: 'RESCHEDULE AND RESET'
             }
-            
             logger.info("\nIndividual Test Results:")
             for i, (test_num, result) in enumerate(zip(test_numbers, results), 1):
                 status = f"✅ Test {test_num} PASSED" if result else f"❌ Test {test_num} FAILED"
                 logger.info(f"  Test {i}: {test_names[test_num]} - {status}")
             logger.info(f"\n{'='*60}")
-
             log_files = sorted(glob.glob('/tmp/perf_test_*.log'))
 
             for log_file in log_files:
                 test_name = os.path.basename(log_file).replace('perf_test_', '').replace('.log', '')
-                
                 try:
                     with open(log_file, 'r') as f:
                         duration = f.read().strip()
@@ -109,7 +97,6 @@ def run_pytest_tests(test_num=None, load_test=False, parallel=False):
                 except Exception as e:
                     logger.info(f"{test_name:<40} | Error reading")
             logger.info("="*60 + "\n")
-            
             return all(results)
         finally:
             stop_fastapi_server(server_process)
@@ -127,9 +114,9 @@ def run_pytest_tests(test_num=None, load_test=False, parallel=False):
 def start_fastapi_server():
     try:
         try:
-            response = requests.get(f'http://localhost:{cfg_agendata_task.system.port}', timeout=1)
+            response = requests.get(f'http://localhost:{cfg.system.port}', timeout=1)
             if response.status_code == 200:
-                logger.info(f"⚠️  Found existing server on port {cfg_agendata_task.system.port}, attempting to kill it...")
+                logger.info(f"⚠️  Found existing server on port {cfg.system.port}, attempting to kill it...")
                 import psutil
                 for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
                     try:
@@ -141,7 +128,7 @@ def start_fastapi_server():
                         pass
         except:
             pass
-        
+
         cmd = [sys.executable, 'fast_api.py']
         cwd = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         process = subprocess.Popen(
@@ -151,15 +138,14 @@ def start_fastapi_server():
             stderr=subprocess.PIPE, 
             text=True
         )
-        
+
         time.sleep(5)
-        
         if process.poll() is not None:
             error_output = process.stderr.read()
             logger.info(f"❌ Server failed to start. Error: {error_output}")
             return None
         try:
-            response = requests.get(f'http://localhost:{cfg_agendata_task.system.port}', timeout=2)
+            response = requests.get(f'http://localhost:{cfg.system.port}', timeout=2)
             if response.status_code == 200:
                 logger.info("✅ FastAPI server started successfully and responding")
                 return process
@@ -190,7 +176,6 @@ if __name__ == '__main__':
     parser.add_argument('test_num', nargs='?', type=int, help='Test number to run (1-5)')
     parser.add_argument('--load-test', action='store_true', help='Run tests without cleaning up between them (for load testing)')
     parser.add_argument('-p', '--parallel', action='store_true', help='Run all tests in parallel (only works when no test_num is specified)')
-    
     args = parser.parse_args()
     logger.info("Cleaning up test files before running tests...")
     cleanup_test_files()

@@ -10,7 +10,7 @@ import signal
 import threading
 import sys
 
-from config_loader import cfg_agendata_task
+from config_loader import cfg
 
 import logging
 logger = logging.getLogger(__name__)
@@ -23,7 +23,7 @@ def pytest_runtest_call(item):
     with open(f"/tmp/perf_{item.name}.log", "w") as f:
         f.write(f"{duration:.2f}")
 
-API_BASE_URL = f'http://localhost:{cfg_agendata_task.system.port}'
+API_BASE_URL = f'http://localhost:{cfg.system.port}'
 TASKS_JSON = 'tasks.json'
 PARENT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -53,26 +53,22 @@ def fastapi_server(request):
     if disable_server_fixture:
         yield
         return
-    
+
     parent_tasks_json = os.path.join(PARENT_DIR, TASKS_JSON)
     backup_file = None
-    
     if os.path.exists(parent_tasks_json):
         backup_file = parent_tasks_json + '.bak'
         shutil.copy(parent_tasks_json, backup_file)
-    
+
     cmd = [sys.executable, 'fast_api.py']
     cwd = PARENT_DIR
-    
     process = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    
     time.sleep(2)
     if process.poll() is not None:
         stderr_content = process.stderr.read()
         restore_tasks_json()
         process.kill()
         pytest.exit("Server process terminated unexpectedly")
-    
     ready = False
     for _ in range(30):
         try:
@@ -81,22 +77,18 @@ def fastapi_server(request):
                 break
         except:
             time.sleep(1)
-    
     if not ready:
         restore_tasks_json(backup_file, parent_tasks_json)
         process.kill()
         pytest.exit("The server did not start.")
-        
     yield
 
     process.terminate()
     process.wait()
-    
     register_cleanup(backup_file, parent_tasks_json, request.config.getoption("--load-test"))
 
 def restore_tasks_json():
     global _backup_file, _parent_tasks_json, _is_load_test
-    
     if _backup_file and os.path.exists(_backup_file):
         if _is_load_test:
             os.remove(_backup_file)
@@ -137,7 +129,6 @@ def register_cleanup(backup_file, parent_tasks_json, is_load_test):
 def cleanup_test_tasks_before():
     parent_tasks_json = os.path.join(PARENT_DIR, TASKS_JSON)
     lock_file = os.path.join(PARENT_DIR, 'test_interrupted.lock')
-    
     if os.path.exists(lock_file):
         try:
             os.remove(lock_file)
@@ -146,13 +137,10 @@ def cleanup_test_tasks_before():
                 if os.path.exists(parent_tasks_json):
                     os.remove(parent_tasks_json)
                 shutil.move(backup_file, parent_tasks_json)
-                
                 try:
                     with open(parent_tasks_json, 'r') as f:
                         tasks = json.load(f)
-                    
                     cleaned_tasks = [task for task in tasks if not task['id'].startswith('test_')]
-                    
                     if len(cleaned_tasks) != len(tasks):
                         with open(parent_tasks_json, 'w') as f:
                             json.dump(cleaned_tasks, f, indent=2)
@@ -160,14 +148,11 @@ def cleanup_test_tasks_before():
                     logger.warning(f"Warning: Could not clean test tasks from recovered file: {e}")
         except Exception as e:
             pass
-    
     if os.path.exists(parent_tasks_json):
         try:
             with open(parent_tasks_json, 'r') as f:
                 tasks = json.load(f)
-            
             cleaned_tasks = [task for task in tasks if not task['id'].startswith('test_')]
-            
             if len(cleaned_tasks) != len(tasks):
                 with open(parent_tasks_json, 'w') as f:
                     json.dump(cleaned_tasks, f, indent=2)

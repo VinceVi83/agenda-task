@@ -30,9 +30,14 @@
             <h1 class="text-3xl font-bold text-white flex items-center gap-2">🎛️ Task Orchestrator</h1>
             
             <div class="flex items-center gap-4">
-                <div class="flex items-center gap-2">
-                    <label for="daysToShow" class="text-sm text-[#8b949e]">Days:</label>
-                    <input type="number" id="daysToShow" min="3" max="7" class="w-16 bg-[#0d1117] border border-[#30363d] rounded px-2 py-1 text-white focus:outline-none focus:border-blue-500">
+                <div class="flex items-center gap-4 bg-[#0d1117] border border-[#30363d] rounded px-3 py-1.5">
+                    <div class="flex items-center gap-2 border-r border-[#30363d] pr-3">
+                        <label for="daysToShow" class="text-sm text-[#8b949e]">Days:</label>
+                        <input type="number" id="daysToShow" min="3" max="7" class="w-14 bg-transparent text-white focus:outline-none font-medium">
+                    </div>
+                    <button id="toggleHiddenBtn" onclick="toggleShowHidden()" class="text-sm font-medium transition-colors flex items-center gap-1.5 text-[#8b949e] hover:text-white">
+                        <span id="toggleHiddenIcon">👁️‍🗨️</span> <span id="toggleHiddenText">Show Hidden</span>
+                    </button>
                 </div>
                 <button onclick="openModal('add')" class="bg-[#238636] hover:bg-[#2ea043] text-white px-4 py-2 rounded text-sm font-semibold transition-colors flex items-center gap-1">
                     <span>➕ Add</span>
@@ -164,14 +169,18 @@
     </div>
 
     <script>
-        let API_URL = "http://localhost:8888";
+        const serverIp = window.location.hostname;
+        let API_URL = `http://${serverIp}:8888`;
         let tasksData = [];
         let functionsData = {};
         let currentMode = "add";
         let selectedTaskId = null;
         let daysToShow = 7;
+        let showHidden = false;
 
         async function init() {
+            const serverIp = window.location.hostname;
+            let API_URL = `http://${serverIp}:9500`;
             try {
                 const configRes = await fetch('/api/config');
                 if (configRes.ok) {
@@ -185,29 +194,62 @@
             await fetchConfig();
             await fetchFunctions();
             await refreshData();
-            
             document.getElementById('daysToShow').addEventListener('change', async (e) => {
                 daysToShow = parseInt(e.target.value) || 7;
-                try {
-                    await fetch(`${API_URL}/config`, {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({ days_to_show: daysToShow })
-                    });
-                } catch(e){}
+                await saveGlobalConfig();
                 render();
             });
         }
 
         async function fetchConfig() {
+            const serverIp = window.location.hostname;
+            let API_URL = `http://${serverIp}:9500`;
             try {
                 const res = await fetch(`${API_URL}/config`);
                 if (res.ok) {
                     const data = await res.json();
                     daysToShow = data.days_to_show || 7;
+                    showHidden = data.show_hidden || false;
                 }
-            } catch(e) { daysToShow = 7; }
+            } catch(e) { 
+                daysToShow = 7;
+                showHidden = false;
+            }
             document.getElementById('daysToShow').value = daysToShow;
+            updateHiddenButtonUI();
+        }
+
+        async function saveGlobalConfig() {
+            const serverIp = window.location.hostname;
+            let API_URL = `http://${serverIp}:9500`;
+            try {
+                await fetch(`${API_URL}/config`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ days_to_show: daysToShow, show_hidden: showHidden })
+                });
+            } catch(e){
+                console.error("Error saving config", e);
+            }
+        }
+
+        async function toggleShowHidden() {
+            showHidden = !showHidden;
+            updateHiddenButtonUI();
+            await saveGlobalConfig();
+            render();
+        }
+
+        function updateHiddenButtonUI() {
+            const btn = document.getElementById('toggleHiddenBtn');
+            const text = document.getElementById('toggleHiddenText');
+            if (showHidden) {
+                btn.className = "text-sm font-medium transition-colors flex items-center gap-1.5 text-blue-400 hover:text-blue-300";
+                text.textContent = "Show";
+            } else {
+                btn.className = "text-sm font-medium transition-colors flex items-center gap-1.5 text-[#8b949e] hover:text-white";
+                text.textContent = "Hide";
+            }
         }
 
         async function fetchFunctions() {
@@ -245,6 +287,8 @@
         }
 
         async function refreshData() {
+            const serverIp = window.location.hostname;
+            let API_URL = `http://${serverIp}:9500`;
             try {
                 const res = await fetch(`${API_URL}/tasks`);
                 if (res.ok) {
@@ -335,7 +379,7 @@
             for (let i = 0; i < 7; i++) {
                 let dayDate = new Date();
                 dayDate.setDate(dayDate.getDate() + i);
-                let todaysTasks = tasksData.filter(t => isTaskOnDay(t, dayDate));
+                let todaysTasks = tasksData.filter(t => isTaskOnDay(t, dayDate) && (showHidden || t.hidden !== 'yes'));
                 todaysTasks.sort((a, b) => getTaskSortKey(a).localeCompare(getTaskSortKey(b)));
                 todaysTasks.forEach(t => {
                     chronology.push({ date: dayDate.toDateString(), id: t.id });
@@ -369,7 +413,11 @@
                 const col = document.createElement('div');
                 col.className = "flex flex-col gap-3 min-w-[180px]";
                 
-                let todaysTasks = tasksData.filter(t => isTaskOnDay(t, dayDate));
+                let todaysTasks = tasksData.filter(t => {
+                    const isTargetDay = isTaskOnDay(t, dayDate);
+                    const isHidden = t.hidden && String(t.hidden).trim().toLowerCase() === 'yes';
+                    return isTargetDay && (showHidden || !isHidden);
+                });
                 todaysTasks.sort((a, b) => getTaskSortKey(a).localeCompare(getTaskSortKey(b)));
 
                 let tasksHTML = '';
@@ -378,8 +426,6 @@
                     const statusStr = task.status || 'active';
                     const skips = task.skip_next || [];
                     const skipTarget = getGlobalSkipIndex(task.id, dayDate);
-                    
-                    // Vérification si cette instance spécifique sur le calendrier est sautée
                     const isSkipped = skips.includes(skipTarget);
                     
                     let heureRun = "--:--";
@@ -455,7 +501,17 @@
                 return;
             }
 
-            tasksData.forEach((task, idx) => {
+            const filteredTasks = tasksData.filter(t => {
+            const isHidden = t.hidden && String(t.hidden).trim().toLowerCase() === 'yes';
+                return showHidden || !isHidden;
+            });
+
+            if (filteredTasks.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-[#8b949e] italic">No configured tasks.</td></tr>`;
+                return;
+            }
+
+            filteredTasks.forEach((task, idx) => {
                 const tr = document.createElement('tr');
                 let triggerHTML = '';
                 if (task.trigger_type === 'cron') {
@@ -490,17 +546,23 @@
         }
 
         async function togglePause(id, currentStatus) {
+            const serverIp = window.location.hostname;
+            let API_URL = `http://${serverIp}:9500`;
             const endpoint = (currentStatus === 'pause') ? 'resume' : 'pause';
             await fetch(`${API_URL}/tasks/${id}/${endpoint}`, { method: 'POST' });
             refreshData();
         }
 
         async function skipTask(id, target) {
+            const serverIp = window.location.hostname;
+            let API_URL = `http://${serverIp}:9500`;
             const res = await fetch(`${API_URL}/tasks/${id}/skip/${target}`, { method: 'POST' });
             if (res.ok) refreshData();
         }
 
         async function deleteTask(id) {
+            const serverIp = window.location.hostname;
+            let API_URL = `http://${serverIp}:9500`;
             if(confirm(`Delete task ${id}?`)) {
                 await fetch(`${API_URL}/tasks/${id}`, { method: 'DELETE' });
                 refreshData();
@@ -510,7 +572,6 @@
         function openModal(mode, id = null) {
             currentMode = mode;
             selectedTaskId = id;
-            
             const modal = document.getElementById('taskModal');
             const form = document.getElementById('modalForm');
             const t_id_input = document.getElementById('t_id');
@@ -532,7 +593,6 @@
                 t_trigger_select.disabled = true;
                 document.getElementById('t_func').value = task.function || '';
                 document.getElementById('t_desc').value = task.description || '';
-
                 const isCron = task.trigger_type === 'cron';
                 const isRescheduled = task.state === 'rescheduled';
 
@@ -543,11 +603,10 @@
                 } else {
                     tempTaskContainer.classList.replace('flex', 'hidden');
                 }
-                
+
                 console.log("=== Debug Edit Task ===");
                 console.log("Task object:", task);
                 console.log("Task end_date property:", task ? task.end_date : "undefined");
-                
                 if (isRescheduled) resetBtn.classList.remove('hidden');
                 else resetBtn.classList.add('hidden');
 
@@ -569,7 +628,6 @@
                 t_trigger_select.disabled = false;
                 tempTaskContainer.classList.replace('flex', 'hidden');
                 resetBtn.classList.add('hidden');
-                
                 let tomorrow = new Date();
                 tomorrow.setDate(tomorrow.getDate() + 1);
                 document.getElementById('t_date').value = tomorrow.toISOString().substring(0, 16);
@@ -610,7 +668,6 @@
             container.innerHTML = '';
 
             if (!functionsData[funcName]) return;
-
             const argsMeta = functionsData[funcName].args || [];
             if (argsMeta.length === 0) {
                 container.innerHTML = `<p class="text-xs text-[#8b949e] italic">This function takes no required arguments.</p>`;
@@ -635,6 +692,8 @@
         }
 
         async function saveTask(e) {
+            const serverIp = window.location.hostname;
+            let API_URL = `http://${serverIp}:9500`;
             e.preventDefault();
             const id = document.getElementById('t_id').value.trim();
             const trigger = document.getElementById('t_trigger').value;
@@ -651,7 +710,6 @@
 
                 endDateInput.classList.remove('border-red-500', 'focus:border-red-500');
                 endDateInput.classList.add('border-[#30363d]');
-
                 const selectedDate = new Date(endDateInput.value);
                 selectedDate.setDate(selectedDate.getDate() + 1);
                 const inclusiveEndDateStr = selectedDate.toISOString().split('T')[0];
@@ -688,7 +746,6 @@
 
             endDateInput.classList.remove('border-red-500', 'focus:border-red-500');
             endDateInput.classList.add('border-[#30363d]');
-
             const argsInputs = document.querySelectorAll('.arg-input');
             let argsList = [];
             argsInputs.forEach(input => {
@@ -708,7 +765,8 @@
                 args: argsList,
                 state: currentTask.state || "active",
                 status: currentTask.status || "active",
-                skip_next: currentTask.skip_next || []
+                skip_next: currentTask.skip_next || [],
+                hidden: currentTask.hidden || ""
             };
 
             if (trigger === 'cron') {
@@ -725,7 +783,6 @@
                     const localDate = new Date(dateInput);
                     const timezoneOffset = localDate.getTimezoneOffset() * 60000;
                     const localISOTime = new Date(localDate.getTime() - timezoneOffset).toISOString().slice(0, 19);
-                    
                     payload.date = localISOTime;
                     payload.run_date = localISOTime;
                 } else {
@@ -758,6 +815,8 @@
         }
 
         async function resetReschedule() {
+            const serverIp = window.location.hostname;
+            let API_URL = `http://${serverIp}:9500`;
             const res = await fetch(`${API_URL}/tasks/${selectedTaskId}/reset-reschedule`, { method: 'POST' });
             if (res.ok) { closeModal(); refreshData(); }
         }

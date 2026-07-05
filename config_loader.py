@@ -3,6 +3,9 @@ import yaml
 import shutil
 import threading
 import requests
+import time
+import socket
+from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -11,12 +14,15 @@ logger = logging.getLogger(__name__)
 
 class Utils:
     """Utility Functions for File Operations and Data Formatting
-    
-    Role: Provides helper methods for data formatting, and send message to discord (dllb).
-    
+
+    Role: Provides helper methods for data formatting, sending messages to discord (dllb),
+          and registering automated tasks in the Orchestrator API.
+
     Methods:
         format_result(result) : Format dict or other result as string.
-        enable_bypass() : Return bypass configuration flag.
+        send_discord_notification(...) : Sends asynchronous notifications.
+        add_cron_task(...) : Adds a recurring cron task via the Scheduler API.
+        add_oneshot_task(...) : Adds a one-time task (ISO date or timestamp) via the Scheduler API.
     """
     @staticmethod
     def format_result(result):
@@ -31,8 +37,20 @@ class Utils:
         return str(result)
 
     @staticmethod
+    def get_server_ip():
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+        except Exception:
+            ip = "127.0.0.1"
+        finally:
+            s.close()
+        return ip
+
+    @staticmethod
     def send_discord_notification(message, channel=None, files=None):
-        if getattr(cfg_agendata_task, 'discord', None) is None:
+        if getattr(cfg, 'discord', None) is None:
             logger.info("Discord not configured")
             return
         def post_request():
@@ -40,25 +58,104 @@ class Utils:
                 if channel is not None:
                     channel_name = channel
                 else:
-                    channel_name = cfg_agendata_task.discord.channel
+                    channel_name = cfg.discord.channel
                 payload = {
                     "channel_name": channel_name,
                     "msg": message,
                     "attachments": files if files else []
                 }
-                requests.post(f"http://{cfg_agendata_task.discord.host}:{cfg_agendata_task.discord.port}/send",
+                server_ip = Utils.get_server_ip()
+                requests.post(f"http://{server_ip}:{cfg.discord.port}/send",
                               json=payload,
                               timeout=5)
             except Exception as e:
                 pass
-        threading.Thread(target=post_request, daemon=True).start()
+        threading.Thread(target=post_request, daemon=False).start()
+
+    @staticmethod
+    def add_oneshot_task(task_id: str, function: str, date_or_timestamp, description: str = "", args: list = None, hidden: str = "yes"):
+        try:
+            if isinstance(date_or_timestamp, (int, float)):
+                run_date_str = datetime.fromtimestamp(date_or_timestamp).strftime('%Y-%m-%dT%H:%M:%S')
+            else:
+                try:
+                    if 'T' in str(date_or_timestamp):
+                        date_part, time_part = str(date_or_timestamp).split('T')
+                        time_segments = time_part.split(':')
+                        padded_time = ':'.join(seg.zfill(2) for seg in time_segments)
+                        dt = datetime.fromisoformat(f"{date_part}T{padded_time}")
+                    else:
+                        dt = datetime.fromisoformat(str(date_or_timestamp))
+                    run_date_str = dt.strftime('%Y-%m-%dT%H:%M:%S')
+                except ValueError:
+                    run_date_str = str(date_or_timestamp)
+
+            port = getattr(cfg.system, 'port', 8888)
+            server_ip = Utils.get_server_ip()
+            url = f"http://{server_ip}:{port}/tasks"
+
+            payload = {
+                "id": task_id,
+                "function": function,
+                "trigger_type": "date",
+                "description": description,
+                "cron": None,
+                "run_date": run_date_str,
+                "args": args if args else [],
+                "status": "active",
+                "state": "active",
+                "skip_next": [],
+                "hidden": hidden
+            }
+
+            response = requests.post(url, json=payload, timeout=5)
+            return response.json()
+        except Exception as e:
+            logger.error(f"Failed to add oneshot task {task_id}: {str(e)}")
+            return {"success": False, "message": str(e)}
+
+    @staticmethod
+    def add_oneshot_task(task_id: str, function: str, date_or_timestamp, description: str = "", args: list = None, hidden: str = "yes"):
+        """
+        Enregistre une tâche à exécution unique (date) alignée sur le modèle valide.
+        :param date_or_timestamp: Chaîne au format ISO ou timestamp Unix (int/float)
+        """
+        try:
+            if isinstance(date_or_timestamp, (int, float)):
+                run_date_str = datetime.fromtimestamp(date_or_timestamp).isoformat()
+            else:
+                run_date_str = str(date_or_timestamp)
+
+            port = getattr(cfg.system, 'port', 8888)
+            server_ip = Utils.get_server_ip()
+            url = f"http://{server_ip}:{port}/tasks"
+
+            payload = {
+                "id": task_id,
+                "function": function,
+                "trigger_type": "date",
+                "description": description,
+                "cron": None,
+                "run_date": run_date_str,
+                "args": args if args else [],
+                "status": "active",
+                "state": "active",
+                "skip_next": [],
+                "hidden": hidden
+            }
+
+            response = requests.post(url, json=payload, timeout=5)
+            return response.json()
+        except Exception as e:
+            logger.error(f"Failed to add oneshot task {task_id}: {str(e)}")
+            return {"success": False, "message": str(e)}
 
 class LocalFilesFilter(logging.Filter):
     
     def __init__(self):
         super().__init__()
         self.local_files = set()
-        root_dir = cfg_agendata_task.root if hasattr(cfg_agendata_task, 'root') else Path(__file__).resolve().parent
+        root_dir = cfg.root if hasattr(cfg, 'root') else Path(__file__).resolve().parent
         for path in root_dir.rglob("*.py"):
             if "__pycache__" in path.parts:
                 continue
@@ -73,12 +170,12 @@ class LocalFilesFilter(logging.Filter):
 
 
 def setup_logging():
-    log_dir = cfg_agendata_task.config_dir
+    log_dir = cfg.config_dir
     log_dir.mkdir(parents=True, exist_ok=True)
 
     date_format = "%y%m%d:%H:%M:%S"
     
-    if getattr(cfg_agendata_task, 'verbose', False):
+    if getattr(cfg, 'verbose', False):
         log_format = "[%(asctime)s][%(filename)s][%(funcName)s](%(levelname)s): %(message)s"
     else:
         log_format = "[%(asctime)s][%(funcName)s](%(levelname)s): %(message)s"
@@ -93,13 +190,13 @@ def setup_logging():
     file_handler = logging.FileHandler(log_dir / "debug.log", mode="a", encoding="utf-8")
     file_handler.setFormatter(formatter)
     file_handler.addFilter(local_filter)
-    
+
     root_logger = logging.getLogger()
-    if getattr(cfg_agendata_task, 'debug', False):
+    if getattr(cfg, 'debug', False):
         root_logger.setLevel(logging.DEBUG)
     else:
         root_logger.setLevel(logging.INFO)
-    
+
     root_logger.handlers = []
     root_logger.addHandler(console_handler)
     root_logger.addHandler(file_handler)
@@ -142,7 +239,6 @@ class CfgConfig(SimpleNamespace):
 
 
 class AgendaTaskConfig:
-    
     def __init__(self):
         self.BASE_DIR = Path.home() / "Documents" / "agenda-task"
         self.CONFIG_FILE = self.BASE_DIR / "config.yaml"
@@ -156,7 +252,6 @@ class AgendaTaskConfig:
     def _setup_files(self):
         self.BASE_DIR.mkdir(parents=True, exist_ok=True)
         self.AGENTS_DIR.mkdir(parents=True, exist_ok=True)
-        
         if not self.CONFIG_FILE.exists():
             example = Path(__file__).parent / "config_example.yaml"
             if example.exists():
@@ -197,4 +292,5 @@ class AgendaTaskConfig:
         return data
 
 
-cfg_agendata_task = AgendaTaskConfig().cfg
+cfg = AgendaTaskConfig().cfg
+

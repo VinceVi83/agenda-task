@@ -2,20 +2,18 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Dict, Any, Optional, List
-from fastapi.responses import FileResponse, JSONResponse
 import json
 import sys
 import os
-
-from config_loader import cfg_agendata_task, setup_logging
+import asyncio
+from config_loader import cfg, setup_logging, Utils
 
 import logging
 setup_logging()
 logger = logging.getLogger(__name__)
-
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from scheduler import current_scheduler
+from scheduler import scheduler, MCPManager
 
 app = FastAPI(
     title="Scheduler API",
@@ -23,15 +21,37 @@ app = FastAPI(
     version="1.0.0"
 )
 
+manager = None
+current_scheduler = None
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=["*"]
 )
 
+SERVER_IP = Utils.get_server_ip()
+
 class Task(BaseModel):
+    """Scheduled task definition model
+
+    Role: Represents a scheduled task with its configuration and execution parameters.
+
+    Methods:
+        id (str): Unique identifier for the task.
+        function (str): Function name to execute when triggered.
+        trigger_type (str): Type of trigger mechanism (cron, date-based).
+        description (Optional[str]): Human-readable description of the task.
+        cron (Optional[Dict[str, str]]): Cron expression parameters if applicable.
+        run_date (Optional[str]): Specific execution date for one-time tasks.
+        args (Optional[List[Any]]): Arguments to pass to the function.
+        status (Optional[str]): Current execution status ("ok", "error").
+        state (Optional[str]): Task lifecycle state ("active", "paused").
+        skip_next (Optional[List[int]]): List of executions to skip.
+        end_date (Optional[str]): Scheduled termination date for task.
+        hidden (Optional[str]): Visibility flag for UI display.
+    """
     id: str
     function: str
     trigger_type: str
@@ -43,28 +63,79 @@ class Task(BaseModel):
     state: Optional[str] = "active"
     skip_next: Optional[List[int]] = []
     end_date: Optional[str] = None
+    hidden: Optional[str] = None
+
+class ConfigResponse(BaseModel):
+    """Configuration response model
+
+    Role: Returns current scheduler configuration settings to clients.
+
+    Methods:
+        days_to_show (int): Number of days in the calendar view to display.
+        show_hidden (Optional[bool]): Whether hidden tasks are visible.
+    """
+    days_to_show: int
+    show_hidden: Optional[bool] = False
+
+class ConfigRequest(BaseModel):
+    """Configuration update request model
+
+    Role: Accepts configuration changes from clients for scheduler settings.
+
+    Methods:
+        days_to_show (int): Number of calendar days to display in UI.
+        show_hidden (Optional[bool]): Flag to toggle hidden task visibility.
+    """
+    days_to_show: int
+    show_hidden: Optional[bool] = False
 
 class TaskResponse(BaseModel):
+    """Task operation response model
+
+    Role: Standardized response for all task-related API operations.
+
+    Methods:
+        success (bool): Indicates whether the operation completed successfully.
+        message (str): Human-readable status or error message.
+        task_id (Optional[str]): Identifier of affected task if applicable.
+        next_execution (Optional[str]): Next scheduled execution timestamp.
+    """
     success: bool
     message: str
     task_id: Optional[str] = None
     next_execution: Optional[str] = None
 
 class TaskListResponse(BaseModel):
+    """Task list response model
+
+    Role: Returns complete list of all configured tasks in the scheduler.
+
+    Methods:
+        tasks (List[Dict[str, Any]]): List of task dictionaries with full details.
+    """
     tasks: List[Dict[str, Any]]
 
 class RescheduleRequest(BaseModel):
+    """Task rescheduling request model
+
+    Role: Accepts new scheduling parameters for modifying existing task timing.
+
+    Methods:
+        new_cron_params (Dict[str, str]): Updated cron expression values.
+        end_date (str): Optional termination date to set on the task.
+    """
     new_cron_params: Dict[str, str]
     end_date: str
 
 class SkipRequest(BaseModel):
+    """Task skip request model
+
+    Role: Accepts instructions for skipping future executions of a scheduled task.
+
+    Methods:
+        number (int): Number of upcoming executions to skip.
+    """
     number: int
-
-class ConfigResponse(BaseModel):
-    days_to_show: int
-
-class ConfigRequest(BaseModel):
-    days_to_show: int
 
 @app.get("/", tags=["General"])
 def read_root():
@@ -92,9 +163,7 @@ def add_task(task: Task):
     try:
         task_dict = task.dict()
         current_scheduler.add_task(task_dict)
-        
         next_execution = current_scheduler._next_execution(task.id)
-        
         return {
             "success": True,
             "message": f"Task {task.id} added successfully",
@@ -109,12 +178,9 @@ def modify_task(task_id: str, task: Task):
     try:
         if task.id != task_id:
             raise HTTPException(status_code=400, detail="Task ID in path and body must match")
-        
         task_dict = task.dict()
         current_scheduler.modify_task(task_dict)
-        
         next_execution = current_scheduler._next_execution(task_id)
-        
         return {
             "success": True,
             "message": f"Task {task_id} modified successfully",
@@ -173,9 +239,7 @@ def reschedule_task(task_id: str, request: RescheduleRequest):
             new_cron_params=request.new_cron_params,
             end_date=request.end_date
         )
-        
         next_execution = current_scheduler._next_execution(task_id)
-        
         return {
             "success": True,
             "message": f"Task {task_id} rescheduled successfully",
@@ -189,9 +253,7 @@ def reschedule_task(task_id: str, request: RescheduleRequest):
 def reset_reschedule(task_id: str):
     try:
         current_scheduler.reset_reschedule(task_id)
-        
         next_execution = current_scheduler._next_execution(task_id)
-        
         return {
             "success": True,
             "message": f"Task {task_id} reschedule reset successfully",
@@ -262,14 +324,26 @@ def serve_gui():
 @app.get("/function_docs.json", tags=["General"])
 def serve_function_docs():
     if os.path.exists("function_docs.json"):
+        from fastapi.responses import JSONResponse
         with open("function_docs.json", "r", encoding="utf-8") as f:
             return JSONResponse(content=json.load(f))
     return JSONResponse(content={"functions": {}}, status_code=404)
 
 @app.get("/api/config", tags=["General"])
 def get_ui_config():
-    return {"api_url": f"http://localhost:{cfg_agendata_task.system.port}"}
+    return {"api_url": f"http://{SERVER_IP}:{cfg.system.port}"}
+
+@app.on_event("startup")
+async def startup_event():
+    global manager, current_scheduler
+    loop = asyncio.get_running_loop()
+    manager = MCPManager()
+    current_scheduler = scheduler(manager)
+    current_scheduler.set_event_loop(loop) 
+    logger.info("Starting initialization...")
+    await manager.initialize_all_functions()
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=cfg_agendata_task.system.port)
+    uvicorn.run(app, host="0.0.0.0", port=cfg.system.port)
+

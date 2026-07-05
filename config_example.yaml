@@ -1,10 +1,18 @@
 system:
-  port: 9500
-  mcp:
+  port: 18888
+  python_bin: "/home/user/PYTHON_PROJECT_ENV/projects/bin/python"
+  scripts:
     - mcp_server.py
-    - /home/user/path/discord-skills/server_mcp.py
+  mcp_servers:
+    - dllb-skill:
+        host: '127.0.0.1'
+        port: '12345'
 
-  discord:
-    host: '127.0.0.1'
-    port: '8000'
-    channel: agenda-task
+discord:
+  host: '127.0.0.1'
+  port: '18000'
+  channel: agenda-task
+
+multiroom:
+  python_bin: "/home/user/PYTHON_PROJECT_ENV/projects/bin/python"
+  working_dir: "/home/user/ProjectLinux/MultiRoom"
