@@ -123,7 +123,7 @@
                     <div class="grid grid-cols-3 gap-2">
                         <div>
                             <div class="flex items-center gap-1 relative group">
-                                <label class="text-[10px] text-[#8b949e] uppercase select-none">Day of Week</label>
+                                <label class="text-[10px] text-[#8b949e] uppercase select-none">Day of Week <span class="text-red-500">*</span></label>
                                 <span class="text-[10px] bg-[#30363d] text-[#c9d1d9] w-3.5 h-3.5 rounded-full flex items-center justify-center cursor-help font-bold">?</span>
                                 <div class="hidden group-hover:block absolute bottom-full left-0 mb-2 w-64 bg-[#21262d] text-xs text-[#c9d1d9] p-3 rounded-lg border border-[#30363d] shadow-xl z-50 whitespace-pre-line font-sans leading-tight"><strong class="text-white block">Day of Week formats:</strong>0-6 (0=Sunday, 6=Saturday)
                 mon,tue,wed,thu,fri,sat,sun (names)
@@ -133,22 +133,22 @@
                 mon-fri (ranges)
                 mon,wed,fri (multiple specific days)</div>
                             </div>
-                            <input type="text" id="c_dow" value="*" class="w-full bg-[#161b22] border border-[#30363d] rounded p-1 text-center text-white text-sm mt-1">
+                            <input type="text" id="c_dow" placeholder="*" class="w-full bg-[#0d1117] border border-[#30363d] rounded p-1.5 text-center text-white text-sm mt-1">
                         </div>
                         <div>
-                            <label class="text-[10px] text-[#8b949e] uppercase block h-3.5 select-none">Hour</label>
-                            <input type="text" id="c_hour" value="0" class="w-full bg-[#161b22] border border-[#30363d] rounded p-1 text-center text-white text-sm mt-1">
+                            <label class="text-[10px] text-[#8b949e] uppercase block h-3.5 select-none">Hour <span class="text-red-500">*</span></label>
+                            <input type="text" id="c_hour" placeholder="0" class="w-full bg-[#0d1117] border border-[#30363d] rounded p-1.5 text-center text-white text-sm mt-1">
                         </div>
                         <div>
-                            <label class="text-[10px] text-[#8b949e] uppercase block h-3.5 select-none">Minute</label>
-                            <input type="text" id="c_min" value="0" class="w-full bg-[#161b22] border border-[#30363d] rounded p-1 text-center text-white text-sm mt-1">
+                            <label class="text-[10px] text-[#8b949e] uppercase block h-3.5 select-none">Minute <span class="text-red-500">*</span></label>
+                            <input type="text" id="c_min" placeholder="0" class="w-full bg-[#0d1117] border border-[#30363d] rounded p-1.5 text-center text-white text-sm mt-1">
                         </div>
                     </div>
                 </div>
 
                 <div id="dateFields" class="p-4 bg-[#0d1117] border border-[#21262d] rounded-lg hidden">
-                    <label class="block text-xs font-semibold text-[#8b949e] uppercase mb-1">Date and Time</label>
-                    <input type="datetime-local" id="t_date" class="w-full bg-[#161b22] border border-[#30363d] rounded p-2 text-white text-sm">
+                    <label class="block text-xs font-semibold text-[#8b949e] uppercase mb-1">Date and Time <span class="text-red-500">*</span></label>
+                    <input type="datetime-local" id="t_date" style="color-scheme: dark;" class="w-full bg-[#0d1117] border border-[#30363d] rounded p-2 text-white text-sm focus:outline-none focus:border-blue-500">
                 </div>
 
                 <div>
@@ -627,15 +627,30 @@
             const t_temp = document.getElementById('t_temp').checked;
             const endDateContainer = document.getElementById('endDateContainer');
 
+            const c_dow = document.getElementById('c_dow');
+            const c_hour = document.getElementById('c_hour');
+            const c_min = document.getElementById('c_min');
+            const t_date = document.getElementById('t_date');
+
             if (trigger === 'cron') {
                 cronFields.classList.remove('hidden');
                 dateFields.classList.add('hidden');
                 if (currentMode === 'edit' && t_temp) endDateContainer.classList.remove('hidden');
                 else endDateContainer.classList.add('hidden');
+
+                c_dow.required = true;
+                c_hour.required = true;
+                c_min.required = true;
+                t_date.required = false;
             } else {
                 cronFields.classList.add('hidden');
                 dateFields.classList.remove('hidden');
                 endDateContainer.classList.add('hidden');
+
+                c_dow.required = false;
+                c_hour.required = false;
+                c_min.required = false;
+                t_date.required = true;
             }
         }
 
@@ -668,7 +683,7 @@
                 const wrapper = document.createElement('div');
                 wrapper.innerHTML = `
                     <div class="flex items-center gap-1.5 relative group mb-1">
-                        <label class="text-xs text-[#8b949e] font-semibold">Argument: ${arg.name}</label>
+                        <label class="text-xs text-[#8b949e] font-semibold">Argument: ${arg.name} <span class="text-red-500">*</span></label>
                         ${exampleText ? `
                         <span class="text-[10px] bg-[#30363d] text-[#c9d1d9] w-3.5 h-3.5 rounded-full flex items-center justify-center cursor-help font-bold">?</span>
                         <div class="hidden group-hover:block absolute bottom-full left-0 mb-2 w-64 bg-[#21262d] text-xs text-[#c9d1d9] p-3 rounded-lg border border-[#30363d] shadow-xl z-50 leading-tight">
@@ -677,7 +692,7 @@
                         </div>
                         ` : ''}
                     </div>
-                    <input type="text" data-arg-idx="${idx}" value="${defaultVal}" placeholder="${exampleText}" class="arg-input w-full bg-[#0d1117] border border-[#30363d] rounded p-1.5 text-white text-sm">
+                    <input type="text" data-arg-idx="${idx}" value="${defaultVal}" placeholder="${exampleText}" required class="arg-input w-full bg-[#0d1117] border border-[#30363d] rounded p-1.5 text-white text-sm">
                 `;
                 container.appendChild(wrapper);
             });
