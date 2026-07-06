@@ -166,7 +166,11 @@ class LocalFilesFilter(logging.Filter):
                     self.local_files.add(path.name)
 
     def filter(self, record):
-        return record.filename in self.local_files
+        if record.filename in self.local_files:
+            return True
+        if record.name and record.name.startswith("uvicorn"):
+            return True
+        return False
 
 
 def setup_logging():
@@ -201,7 +205,8 @@ def setup_logging():
     root_logger.addHandler(console_handler)
     root_logger.addHandler(file_handler)
 
-    logging.getLogger("uvicorn").setLevel(logging.WARNING)
+    logging.getLogger("uvicorn").setLevel(logging.INFO)
+    logging.getLogger("uvicorn.access").setLevel(logging.INFO)
 
 
 class CfgConfig(SimpleNamespace):

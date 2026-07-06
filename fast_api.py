@@ -368,9 +368,10 @@ async def startup_event():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
-        app, 
+        app,
         host="0.0.0.0", 
         port=cfg.system.port,
         ssl_keyfile=cfg.system.key_pem,
-        ssl_certfile=cfg.system.cert_pem
+        ssl_certfile=cfg.system.cert_pem,
+        log_config=None
     )
