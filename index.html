@@ -503,7 +503,15 @@
                     triggerHTML = `📅 <strong>Unique</strong>: <code class="bg-[#0d1117] px-1 rounded">${dStr.substring(0, 16)}</code>`;
                 }
 
-                const argsHTML = task.args && task.args.length ? `<code class="bg-[#0d1117] px-1 rounded text-xs">[${task.args.join(', ')}]</code>` : `<span class="text-[#484f58]">None</span>`;
+                let argsParts = [];
+                if (task.args && task.args.length) {
+                    argsParts.push(`[${task.args.join(', ')}]`);
+                }
+                if (task.kwargs && Object.keys(task.kwargs).length) {
+                    const kwStr = Object.entries(task.kwargs).map(([k, v]) => `${k}=${v}`).join(', ');
+                    argsParts.push(`{${kwStr}}`);
+                }
+                const argsHTML = argsParts.length ? `<code class="bg-[#0d1117] px-1 rounded text-xs">${argsParts.join(' ')}</code>` : `<span class="text-[#484f58]">None</span>`;
                 const status = task.state || 'ok';
                 const dotColor = (status === 'ok' || status === 'active') ? '#56d364' : '#ffa23e';
                 const iconPlayPause = (task.status === 'pause') ? "▶️" : "⏸️";
@@ -578,9 +586,6 @@
                     tempTaskContainer.classList.replace('flex', 'hidden');
                 }
 
-                console.log("=== Debug Edit Task ===");
-                console.log("Task object:", task);
-                console.log("Task end_date property:", task ? task.end_date : "undefined");
                 if (isRescheduled) resetBtn.classList.remove('hidden');
                 else resetBtn.classList.add('hidden');
 
@@ -643,23 +648,63 @@
 
             if (!functionsData[funcName]) return;
             const argsMeta = functionsData[funcName].args || [];
-            if (argsMeta.length === 0) {
-                container.innerHTML = `<p class="text-xs text-[#8b949e] italic">This function takes no required arguments.</p>`;
+            const kwargsMeta = functionsData[funcName].kwargs || [];
+            
+            if (argsMeta.length === 0 && kwargsMeta.length === 0) {
+                container.innerHTML = `<p class="text-xs text-[#8b949e] italic">This function takes no parameters.</p>`;
                 return;
             }
 
             argsMeta.forEach((arg, idx) => {
                 let defaultVal = "";
+                let exampleText = "";
+                if (arg.example !== undefined) {
+                    exampleText = String(arg.example).replace(/^['"]|['"]$/g, '');
+                }
                 if (task && task.args && task.args[idx] !== undefined) {
                     defaultVal = String(task.args[idx]);
-                } else if (arg.example !== undefined) {
-                    defaultVal = String(arg.example).replace(/^['"]|['"]$/g, '');
                 }
 
                 const wrapper = document.createElement('div');
                 wrapper.innerHTML = `
-                    <label class="text-xs text-[#8b949e] block mb-1">Argument: ${arg.name}</label>
-                    <input type="text" data-arg-idx="${idx}" value="${defaultVal}" class="arg-input w-full bg-[#0d1117] border border-[#30363d] rounded p-1.5 text-white text-sm">
+                    <div class="flex items-center gap-1.5 relative group mb-1">
+                        <label class="text-xs text-[#8b949e] font-semibold">Argument: ${arg.name}</label>
+                        ${exampleText ? `
+                        <span class="text-[10px] bg-[#30363d] text-[#c9d1d9] w-3.5 h-3.5 rounded-full flex items-center justify-center cursor-help font-bold">?</span>
+                        <div class="hidden group-hover:block absolute bottom-full left-0 mb-2 w-64 bg-[#21262d] text-xs text-[#c9d1d9] p-3 rounded-lg border border-[#30363d] shadow-xl z-50 leading-tight">
+                            <strong class="text-white block mb-1">Example Value:</strong>
+                            ${exampleText}
+                        </div>
+                        ` : ''}
+                    </div>
+                    <input type="text" data-arg-idx="${idx}" value="${defaultVal}" placeholder="${exampleText}" class="arg-input w-full bg-[#0d1117] border border-[#30363d] rounded p-1.5 text-white text-sm">
+                `;
+                container.appendChild(wrapper);
+            });
+
+            kwargsMeta.forEach((kwarg) => {
+                let defaultVal = "";
+                let exampleText = "";
+                if (kwarg.example !== undefined) {
+                    exampleText = String(kwarg.example).replace(/^['"]|['"]$/g, '');
+                }
+                if (task && task.kwargs && task.kwargs[kwarg.name] !== undefined) {
+                    defaultVal = String(task.kwargs[kwarg.name]);
+                }
+
+                const wrapper = document.createElement('div');
+                wrapper.innerHTML = `
+                    <div class="flex items-center gap-1.5 relative group mb-1">
+                        <label class="text-xs text-amber-400 font-semibold">Keyword (Optional): ${kwarg.name}</label>
+                        ${exampleText ? `
+                        <span class="text-[10px] bg-[#30363d] text-[#c9d1d9] w-3.5 h-3.5 rounded-full flex items-center justify-center cursor-help font-bold">?</span>
+                        <div class="hidden group-hover:block absolute bottom-full left-0 mb-2 w-64 bg-[#21262d] text-xs text-[#c9d1d9] p-3 rounded-lg border border-[#30363d] shadow-xl z-50 leading-tight">
+                            <strong class="text-white block mb-1">Example Value:</strong>
+                            ${exampleText}
+                        </div>
+                        ` : ''}
+                    </div>
+                    <input type="text" data-kwarg-name="${kwarg.name}" value="${defaultVal}" placeholder="${exampleText}" class="kwarg-input w-full bg-[#0d1117] border border-[#30363d] rounded p-1.5 text-white text-sm">
                 `;
                 container.appendChild(wrapper);
             });
@@ -724,6 +769,15 @@
                 argsList.push(input.value);
             });
 
+            const kwargInputs = document.getElementById('argsContainer').querySelectorAll('.kwarg-input');            
+            let kwargsObj = {};
+            kwargInputs.forEach(input => {
+                const name = input.getAttribute('data-kwarg-name');
+                if (name) {
+                    kwargsObj[name] = input.value;
+                }
+            });
+
             const currentTask = tasksData.find(t => t.id === selectedTaskId) || {};
 
             let payload = {
@@ -735,6 +789,7 @@
                 cron: null,
                 date: null,
                 args: argsList,
+                kwargs: kwargsObj,
                 state: currentTask.state || "active",
                 status: currentTask.status || "active",
                 skip_next: currentTask.skip_next || [],

@@ -63,6 +63,7 @@ class Task(BaseModel):
         cron (Optional[Dict[str, str]]): Cron expression parameters if applicable.
         run_date (Optional[str]): Specific execution date for one-time tasks.
         args (Optional[List[Any]]): Arguments to pass to the function.
+        kwargs (Optional[Dict[str, Any]]): Keyword arguments to pass to the function.
         status (Optional[str]): Current execution status ("ok", "error").
         state (Optional[str]): Task lifecycle state ("active", "paused").
         skip_next (Optional[List[int]]): List of executions to skip.
@@ -76,6 +77,7 @@ class Task(BaseModel):
     cron: Optional[Dict[str, str]] = None
     run_date: Optional[str] = None
     args: Optional[List[Any]] = []
+    kwargs: Optional[Dict[str, Any]] = {}
     status: Optional[str] = "ok"
     state: Optional[str] = "active"
     skip_next: Optional[List[int]] = []
