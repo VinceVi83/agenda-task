@@ -1,3 +1,7 @@
+import secrets
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi import Depends
+from fastapi.responses import FileResponse
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -20,6 +24,19 @@ app = FastAPI(
     description="API to manage scheduled tasks",
     version="1.0.0"
 )
+
+security = HTTPBasic()
+
+def check_credentials(credentials: HTTPBasicCredentials = Depends(security)):
+    correct_username = secrets.compare_digest(credentials.username, cfg.system.user)
+    correct_password = secrets.compare_digest(credentials.password, cfg.system.password)
+    if not (correct_username and correct_password):
+        raise HTTPException(
+            status_code=401,
+            detail="Identifiants incorrects",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    return credentials.username
 
 manager = None
 current_scheduler = None
@@ -138,15 +155,15 @@ class SkipRequest(BaseModel):
     number: int
 
 @app.get("/", tags=["General"])
-def read_root():
+def read_root(username: str = Depends(check_credentials)):
     return {"message": "Scheduler API is running", "status": "ok"}
 
 @app.get("/config", tags=["Config"], response_model=ConfigResponse)
-def get_config():
+def get_config(username: str = Depends(check_credentials)):
     return {"days_to_show": current_scheduler.days_to_show}
 
 @app.post("/config", tags=["Config"])
-def update_config(request: ConfigRequest):
+def update_config(request: ConfigRequest, username: str = Depends(check_credentials)):
     try:
         current_scheduler.save_config(request.days_to_show)
         return {"success": True, "days_to_show": current_scheduler.days_to_show}
@@ -154,12 +171,12 @@ def update_config(request: ConfigRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.get("/tasks", tags=["Tasks"], response_model=TaskListResponse)
-def list_tasks():
+def list_tasks(username: str = Depends(check_credentials)):
     tasks = current_scheduler.tasks
     return {"tasks": tasks}
 
 @app.post("/tasks", tags=["Tasks"], response_model=TaskResponse)
-def add_task(task: Task):
+def add_task(task: Task, username: str = Depends(check_credentials)):
     try:
         task_dict = task.dict()
         current_scheduler.add_task(task_dict)
@@ -174,7 +191,7 @@ def add_task(task: Task):
         raise HTTPException(status_code=400, detail=f"Error adding task: {str(e)}")
 
 @app.put("/tasks/{task_id}", tags=["Tasks"], response_model=TaskResponse)
-def modify_task(task_id: str, task: Task):
+def modify_task(task_id: str, task: Task, username: str = Depends(check_credentials)):
     try:
         if task.id != task_id:
             raise HTTPException(status_code=400, detail="Task ID in path and body must match")
@@ -191,7 +208,7 @@ def modify_task(task_id: str, task: Task):
         raise HTTPException(status_code=400, detail=f"Error modifying task: {str(e)}")
 
 @app.post("/tasks/{task_id}/pause", tags=["Tasks"], response_model=TaskResponse)
-def pause_task(task_id: str):
+def pause_task(task_id: str, username: str = Depends(check_credentials)):
     try:
         success = current_scheduler.pause_task(task_id)
         if not success:
@@ -207,7 +224,7 @@ def pause_task(task_id: str):
         raise HTTPException(status_code=400, detail=f"Error pausing task: {str(e)}")
 
 @app.post("/tasks/{task_id}/resume", tags=["Tasks"], response_model=TaskResponse)
-def resume_task(task_id: str):
+def resume_task(task_id: str, username: str = Depends(check_credentials)):
     try:
         success = current_scheduler.resume_task(task_id)
         if not success:
@@ -223,7 +240,7 @@ def resume_task(task_id: str):
         raise HTTPException(status_code=400, detail=f"Error resuming task: {str(e)}")
 
 @app.delete("/tasks/{task_id}", tags=["Tasks"], response_model=TaskResponse)
-def remove_task(task_id: str):
+def remove_task(task_id: str, username: str = Depends(check_credentials)):
     current_scheduler.remove_task(task_id, save=True)
     return {
         "success": True,
@@ -250,7 +267,7 @@ def reschedule_task(task_id: str, request: RescheduleRequest):
         raise HTTPException(status_code=400, detail=f"Error rescheduling task: {str(e)}")
 
 @app.post("/tasks/{task_id}/reset-reschedule", tags=["Tasks"], response_model=TaskResponse)
-def reset_reschedule(task_id: str):
+def reset_reschedule(task_id: str, username: str = Depends(check_credentials)):
     try:
         current_scheduler.reset_reschedule(task_id)
         next_execution = current_scheduler._next_execution(task_id)
@@ -264,7 +281,7 @@ def reset_reschedule(task_id: str):
         raise HTTPException(status_code=400, detail=f"Error resetting reschedule: {str(e)}")
 
 @app.post("/tasks/{task_id}/skip/{number}", tags=["Tasks"], response_model=TaskResponse)
-def add_skip(task_id: str, number: int):
+def add_skip(task_id: str, number: int, username: str = Depends(check_credentials)):
     try:
         current_scheduler.add_skip(task_id, number)
         return {
@@ -276,7 +293,7 @@ def add_skip(task_id: str, number: int):
         raise HTTPException(status_code=400, detail=f"Error adding skip: {str(e)}")
 
 @app.delete("/tasks/{task_id}/skip/{number}", tags=["Tasks"], response_model=TaskResponse)
-def remove_skip(task_id: str, number: int):
+def remove_skip(task_id: str, number: int, username: str = Depends(check_credentials)):
     try:
         current_scheduler.remove_skip(task_id, number)
         return {
@@ -288,7 +305,7 @@ def remove_skip(task_id: str, number: int):
         raise HTTPException(status_code=400, detail=f"Error removing skip: {str(e)}")
 
 @app.get("/tasks/{task_id}/next-execution", tags=["Tasks"])
-def get_next_execution(task_id: str):
+def get_next_execution(task_id: str, username: str = Depends(check_credentials)):
     try:
         next_execution = current_scheduler._next_execution(task_id)
         if next_execution:
@@ -308,7 +325,7 @@ def get_next_execution(task_id: str):
         raise HTTPException(status_code=400, detail=f"Error getting next execution: {str(e)}")
 
 @app.post("/shutdown", tags=["General"])
-def shutdown_scheduler():
+def shutdown_scheduler(username: str = Depends(check_credentials)):
     try:
         current_scheduler.shutdown()
         return {"success": True, "message": "Scheduler shutdown successfully"}
@@ -318,11 +335,11 @@ def shutdown_scheduler():
 from fastapi.responses import FileResponse
 
 @app.get("/gui", tags=["General"])
-def serve_gui():
+def serve_gui(username: str = Depends(check_credentials)):
     return FileResponse("index.html")
 
 @app.get("/function_docs.json", tags=["General"])
-def serve_function_docs():
+def serve_function_docs(username: str = Depends(check_credentials)):
     if os.path.exists("function_docs.json"):
         from fastapi.responses import JSONResponse
         with open("function_docs.json", "r", encoding="utf-8") as f:
@@ -330,8 +347,13 @@ def serve_function_docs():
     return JSONResponse(content={"functions": {}}, status_code=404)
 
 @app.get("/api/config", tags=["General"])
-def get_ui_config():
-    return {"api_url": f"http://{SERVER_IP}:{cfg.system.port}"}
+def get_ui_config(username: str = Depends(check_credentials)):
+    return {"api_url": f"https://{SERVER_IP}:{cfg.system.port}"}
+
+@app.on_event("startup")
+@app.get("/api/config", tags=["General"])
+def get_ui_config(username: str = Depends(check_credentials)):
+    return {"api_url": f"https://{SERVER_IP}:{cfg.system.port}"}
 
 @app.on_event("startup")
 async def startup_event():
@@ -345,5 +367,10 @@ async def startup_event():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=cfg.system.port)
-
+    uvicorn.run(
+        app, 
+        host="0.0.0.0", 
+        port=cfg.system.port,
+        ssl_keyfile=cfg.system.key_pem,
+        ssl_certfile=cfg.system.cert_pem
+    )

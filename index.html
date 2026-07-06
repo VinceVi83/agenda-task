@@ -169,8 +169,6 @@
     </div>
 
     <script>
-        const serverIp = window.location.hostname;
-        let API_URL = `http://${serverIp}:8888`;
         let tasksData = [];
         let functionsData = {};
         let currentMode = "add";
@@ -179,18 +177,6 @@
         let showHidden = false;
 
         async function init() {
-            const serverIp = window.location.hostname;
-            let API_URL = `http://${serverIp}:9500`;
-            try {
-                const configRes = await fetch('/api/config');
-                if (configRes.ok) {
-                    const configData = await configRes.json();
-                    API_URL = configData.api_url;
-                }
-            } catch(e) {
-                console.error("Could not load dynamic API_URL config, using default", e);
-            }
-
             await fetchConfig();
             await fetchFunctions();
             await refreshData();
@@ -202,10 +188,8 @@
         }
 
         async function fetchConfig() {
-            const serverIp = window.location.hostname;
-            let API_URL = `http://${serverIp}:9500`;
             try {
-                const res = await fetch(`${API_URL}/config`);
+                const res = await fetch('/config');
                 if (res.ok) {
                     const data = await res.json();
                     daysToShow = data.days_to_show || 7;
@@ -220,10 +204,8 @@
         }
 
         async function saveGlobalConfig() {
-            const serverIp = window.location.hostname;
-            let API_URL = `http://${serverIp}:9500`;
             try {
-                await fetch(`${API_URL}/config`, {
+                await fetch('/config', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ days_to_show: daysToShow, show_hidden: showHidden })
@@ -287,10 +269,8 @@
         }
 
         async function refreshData() {
-            const serverIp = window.location.hostname;
-            let API_URL = `http://${serverIp}:9500`;
             try {
-                const res = await fetch(`${API_URL}/tasks`);
+                const res = await fetch('/tasks');
                 if (res.ok) {
                     const data = await res.json();
                     let tasksDict = data.tasks || {};
@@ -546,25 +526,19 @@
         }
 
         async function togglePause(id, currentStatus) {
-            const serverIp = window.location.hostname;
-            let API_URL = `http://${serverIp}:9500`;
             const endpoint = (currentStatus === 'pause') ? 'resume' : 'pause';
-            await fetch(`${API_URL}/tasks/${id}/${endpoint}`, { method: 'POST' });
+            await fetch(`/tasks/${id}/${endpoint}`, { method: 'POST' });
             refreshData();
         }
 
         async function skipTask(id, target) {
-            const serverIp = window.location.hostname;
-            let API_URL = `http://${serverIp}:9500`;
-            const res = await fetch(`${API_URL}/tasks/${id}/skip/${target}`, { method: 'POST' });
+            const res = await fetch(`/tasks/${id}/skip/${target}`, { method: 'POST' });
             if (res.ok) refreshData();
         }
 
         async function deleteTask(id) {
-            const serverIp = window.location.hostname;
-            let API_URL = `http://${serverIp}:9500`;
             if(confirm(`Delete task ${id}?`)) {
-                await fetch(`${API_URL}/tasks/${id}`, { method: 'DELETE' });
+                await fetch(`/tasks/${id}`, { method: 'DELETE' });
                 refreshData();
             }
         }
@@ -692,8 +666,6 @@
         }
 
         async function saveTask(e) {
-            const serverIp = window.location.hostname;
-            let API_URL = `http://${serverIp}:9500`;
             e.preventDefault();
             const id = document.getElementById('t_id').value.trim();
             const trigger = document.getElementById('t_trigger').value;
@@ -723,7 +695,7 @@
                     end_date: inclusiveEndDateStr + "T00:00:00"
                 };
                 try {
-                    const res = await fetch(`${API_URL}/tasks/${selectedTaskId}/reschedule`, {
+                    const res = await fetch(`/tasks/${selectedTaskId}/reschedule`, {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify(resData)
@@ -792,7 +764,7 @@
             }
 
             const method = (currentMode === 'add') ? 'POST' : 'PUT';
-            const url = (currentMode === 'add') ? `${API_URL}/tasks` : `${API_URL}/tasks/${selectedTaskId}`;
+            const url = (currentMode === 'add') ? `/tasks` : `/tasks/${selectedTaskId}`;
 
             try {
                 const res = await fetch(url, {
@@ -815,9 +787,7 @@
         }
 
         async function resetReschedule() {
-            const serverIp = window.location.hostname;
-            let API_URL = `http://${serverIp}:9500`;
-            const res = await fetch(`${API_URL}/tasks/${selectedTaskId}/reset-reschedule`, { method: 'POST' });
+            const res = await fetch(`/tasks/${selectedTaskId}/reset-reschedule`, { method: 'POST' });
             if (res.ok) { closeModal(); refreshData(); }
         }
 
