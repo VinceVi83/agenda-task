@@ -9,6 +9,8 @@ from typing import Dict, Any, Optional, List
 import json
 import sys
 import os
+import ipaddress
+from fastapi import Request
 import asyncio
 from config_loader import cfg, setup_logging, Utils
 
@@ -25,9 +27,22 @@ app = FastAPI(
     version="1.0.0"
 )
 
-security = HTTPBasic()
+security = HTTPBasic(auto_error=False)
 
-def check_credentials(credentials: HTTPBasicCredentials = Depends(security)):
+def check_credentials(request: Request, credentials: Optional[HTTPBasicCredentials] = Depends(security)):
+    try:
+        client_ip = ipaddress.ip_address(request.client.host)
+        local_subnet = ipaddress.ip_network("192.168.0.0/16")
+        if client_ip.is_loopback or client_ip in local_subnet:
+            return cfg.system.user
+    except ValueError:
+        pass
+    if not credentials:
+        raise HTTPException(
+            status_code=401,
+            detail="Identifiants incorrects",
+            headers={"WWW-Authenticate": "Basic"},
+        )
     correct_username = secrets.compare_digest(credentials.username, cfg.system.user)
     correct_password = secrets.compare_digest(credentials.password, cfg.system.password)
     if not (correct_username and correct_password):
