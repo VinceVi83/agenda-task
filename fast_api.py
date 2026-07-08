@@ -367,10 +367,46 @@ def serve_function_docs(username: str = Depends(check_credentials)):
 def get_ui_config(username: str = Depends(check_credentials)):
     return {"api_url": f"https://{SERVER_IP}:{cfg.system.port}"}
 
-@app.on_event("startup")
-@app.get("/api/config", tags=["General"])
-def get_ui_config(username: str = Depends(check_credentials)):
-    return {"api_url": f"https://{SERVER_IP}:{cfg.system.port}"}
+@app.get("/logs", tags=["System"])
+def get_system_logs(name: str = "Default", include: str = "", exclude: str = "", username: str = Depends(check_credentials)):
+    import pathlib
+    if name == "Default":
+        log_path = cfg.config_dir / "debug.log"
+    else:
+        log_files_obj = getattr(cfg.system, "logfiles", None)
+        if log_files_obj is None or not hasattr(log_files_obj, name):
+            raise HTTPException(status_code=400, detail="Log profile not configured")
+        log_path = pathlib.Path(getattr(log_files_obj, name))
+
+    if not log_path.exists():
+        raise HTTPException(status_code=404, detail=f"Log file '{name}' not found at path")
+    try:
+        include_words = [w.lower() for w in include.split(" ") if w.strip()]
+        exclude_words = [w.lower() for w in exclude.split(" ") if w.strip()]
+        
+        filtered_lines = []
+        with open(log_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line_lower = line.lower()
+                if include_words and not any(word in line_lower for word in include_words):
+                    continue
+                if exclude_words and any(word in line_lower for word in exclude_words):
+                    continue
+                filtered_lines.append(line)
+                
+        return {"content": "".join(filtered_lines)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/logs/list", tags=["System"])
+def list_log_profiles(username: str = Depends(check_credentials)):
+    log_files_obj = getattr(cfg.system, "logfiles", None)
+    extra_profiles = []
+    if log_files_obj is not None:
+        obj_dict = getattr(log_files_obj, "__dict__", {})
+        extra_profiles = [str(k) for k in obj_dict.keys() if not k.startswith("_")]
+    profiles = ["Default"] + extra_profiles
+    return {"profiles": profiles}
 
 @app.on_event("startup")
 async def startup_event():
@@ -378,7 +414,7 @@ async def startup_event():
     loop = asyncio.get_running_loop()
     manager = MCPManager()
     current_scheduler = scheduler(manager)
-    current_scheduler.set_event_loop(loop) 
+    current_scheduler.set_event_loop(loop)
     logger.info("Starting initialization...")
     await manager.initialize_all_functions()
 

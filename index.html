@@ -50,6 +50,7 @@
         <div class="border-b border-[#21262d] mb-6 flex gap-4">
             <button id="tabCalBtn" onclick="switchTab('calendar')" class="py-2 px-4 border-b-2 border-blue-500 text-white font-medium text-sm flex items-center gap-2">📅 Calendar</button>
             <button id="tabListBtn" onclick="switchTab('list')" class="py-2 px-4 border-b-2 border-transparent text-[#8b949e] hover:text-white font-medium text-sm flex items-center gap-2">📋 List</button>
+            <button id="tabLogsBtn" onclick="switchTab('logs')" class="py-2 px-4 border-b-2 border-transparent text-[#8b949e] hover:text-white font-medium text-sm flex items-center gap-2">📜 Logs</button>
         </div>
 
         <section id="calendarView" class="block">
@@ -73,6 +74,31 @@
                     </tbody>
                 </table>
             </div>
+        </section>
+
+        <section id="logsView" class="hidden bg-[#161b22] border border-[#21262d] rounded-lg overflow-hidden p-4">
+            <div class="flex flex-col gap-4 mb-4 border-b border-[#21262d] pb-4 text-[#c9d1d9]">
+                <div class="flex justify-between items-center">
+                    <div class="flex items-center gap-3">
+                        <h2 class="text-lg font-semibold text-white">System Logs</h2>
+                        <select id="logFileSelect" onchange="fetchLogs()" class="bg-[#0d1117] border border-[#30363d] rounded px-3 py-1 text-sm text-white focus:outline-none focus:border-blue-500">
+                            <option value="Default">Default</option>
+                        </select>
+                    </div>
+                    <button onclick="fetchLogs()" class="bg-[#21262d] hover:bg-[#30363d] text-white px-3 py-1.5 rounded text-xs font-semibold transition-colors">🔄 Refresh Logs</button>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-green-400 uppercase mb-1">Include keywords (grep -i -e)</label>
+                        <input type="text" id="logIncludeInput" placeholder="word1 word2 ..." oninput="fetchLogs()" class="w-full bg-[#0d1117] border border-[#30363d] rounded p-2 text-white text-xs focus:outline-none focus:border-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-red-400 uppercase mb-1">Exclude keywords (grep -i -v -e)</label>
+                        <input type="text" id="logExcludeInput" placeholder="word1 word2 ..." oninput="fetchLogs()" class="w-full bg-[#0d1117] border border-[#30363d] rounded p-2 text-white text-xs focus:outline-none focus:border-blue-500">
+                    </div>
+                </div>
+            </div>
+            <pre id="logContent" class="bg-[#0d1117] border border-[#30363d] rounded p-4 text-xs text-[#79c0ff] font-mono overflow-auto min-h-[500px] h-[calc(100vh-280px)] whitespace-pre-wrap"></pre>
         </section>
     </main>
 
@@ -291,22 +317,83 @@
             render();
         }
 
-        function switchTab(tab) {
+        async function fetchLogProfiles() {
+            const select = document.getElementById('logFileSelect');
+            try {
+                const res = await fetch('/logs/list');
+                if (res.ok) {
+                    const data = await res.json();
+                    const currentVal = select.value;
+                    select.innerHTML = '';
+                    data.profiles.forEach(profile => {
+                        const opt = document.createElement('option');
+                        opt.value = profile;
+                        opt.textContent = profile;
+                        select.appendChild(opt);
+                    });
+                    if (data.profiles.includes(currentVal)) {
+                        select.value = currentVal;
+                    }
+                }
+            } catch (e) {
+                console.error("Error fetching log profiles", e);
+            }
+        }
+
+        async function fetchLogs() {
+            const logContentElement = document.getElementById('logContent');
+            const select = document.getElementById('logFileSelect');
+            const includeInput = document.getElementById('logIncludeInput');
+            const excludeInput = document.getElementById('logExcludeInput');
+            
+            const selectedProfile = select ? select.value : "Default";
+            const includeVal = includeInput ? includeInput.value : "";
+            const excludeVal = excludeInput ? excludeInput.value : "";
+            
+            logContentElement.textContent = "Loading logs...";
+            try {
+                const url = `/logs?name=${encodeURIComponent(selectedProfile)}&include=${encodeURIComponent(includeVal)}&exclude=${encodeURIComponent(excludeVal)}`;
+                const res = await fetch(url);
+                if (res.ok) {
+                    const data = await res.json();
+                    logContentElement.textContent = data.content || "Log file is empty or no matches found.";
+                    logContentElement.scrollTop = logContentElement.scrollHeight;
+                } else {
+                    const errData = await res.json().catch(() => ({}));
+                    logContentElement.textContent = `Error: ${errData.detail || 'Failed to load logs from server.'}`;
+                }
+            } catch (e) {
+                logContentElement.textContent = `Network Error: ${e.message}`;
+            }
+        }
+
+        async function switchTab(tab) {
             const calBtn = document.getElementById('tabCalBtn');
             const listBtn = document.getElementById('tabListBtn');
+            const logsBtn = document.getElementById('tabLogsBtn');
             const calView = document.getElementById('calendarView');
             const listView = document.getElementById('listView');
+            const logsView = document.getElementById('logsView');
+
+            calBtn.className = "py-2 px-4 border-b-2 border-transparent text-[#8b949e] hover:text-white font-medium text-sm flex items-center gap-2";
+            listBtn.className = "py-2 px-4 border-b-2 border-transparent text-[#8b949e] hover:text-white font-medium text-sm flex items-center gap-2";
+            logsBtn.className = "py-2 px-4 border-b-2 border-transparent text-[#8b949e] hover:text-white font-medium text-sm flex items-center gap-2";
+            
+            calView.classList.replace('block', 'hidden');
+            listView.classList.replace('block', 'hidden');
+            logsView.classList.replace('block', 'hidden');
 
             if (tab === 'calendar') {
                 calBtn.className = "py-2 px-4 border-b-2 border-blue-500 text-white font-medium text-sm flex items-center gap-2";
-                listBtn.className = "py-2 px-4 border-b-2 border-transparent text-[#8b949e] hover:text-white font-medium text-sm flex items-center gap-2";
                 calView.classList.replace('hidden', 'block');
-                listView.classList.replace('block', 'hidden');
-            } else {
+            } else if (tab === 'list') {
                 listBtn.className = "py-2 px-4 border-b-2 border-blue-500 text-white font-medium text-sm flex items-center gap-2";
-                calBtn.className = "py-2 px-4 border-b-2 border-transparent text-[#8b949e] hover:text-white font-medium text-sm flex items-center gap-2";
                 listView.classList.replace('hidden', 'block');
-                calView.classList.replace('block', 'hidden');
+            } else if (tab === 'logs') {
+                logsBtn.className = "py-2 px-4 border-b-2 border-blue-500 text-white font-medium text-sm flex items-center gap-2";
+                logsView.classList.replace('hidden', 'block');
+                await fetchLogProfiles();
+                fetchLogs();
             }
         }
 
