@@ -1,6 +1,9 @@
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 import ast
+import inspect
+import re
+import json
 import logging
 import json
 import os
@@ -38,7 +41,6 @@ class MCPManager:
         await self.initialize_all_functions()
 
     async def wait_until_ready(self):
-        """À appeler par le scheduler si besoin"""
         if not self._init_done.is_set():
             await self._init_done.wait()
 
@@ -61,20 +63,49 @@ class MCPManager:
                 for node in ast.walk(tree):
                     if isinstance(node, ast.FunctionDef) and not node.name.startswith('_'):
                         full_name = f"{module_name}.{node.name}"
-                        doc = ast.get_docstring(node)
-                        description = doc.strip() if doc else ''
-                        args_list = []
-                        for arg in node.args.args:
-                            if arg.arg == 'self':
-                                continue
-                            args_list.append({'name': arg.arg, 'example': f"'{arg.arg}_value'"})
+                        raw_doc = ast.get_docstring(node)
+                        doc = inspect.cleandoc(raw_doc) if raw_doc else ""
+                        main_desc = doc.strip()
+                        args_section = ""
+                        if doc and "Args:" in doc:
+                            main_desc, args_section = doc.split("Args:", 1)
+                            main_desc = main_desc.strip()
 
-                        kwargs_list = []
-                        for arg in node.args.kwonlyargs:
-                            kwargs_list.append({'name': arg.arg, 'example': f"'{arg.arg}_value'"})
+                        param_docs = {}
+                        if args_section:
+                            matches = re.findall(r"^\s*([a-zA-Z0-9_]+)\s*:\s*(.*?)(?=\n\s*[a-zA-Z0-9_]+\s*:|\Z)", args_section, re.MULTILINE | re.DOTALL)
+                            for param_name, text_raw in matches:
+                                text = " ".join(text_raw.split()).strip()
+                                example_match = re.search(r"\(e\.g\.,\s*(.*?)\)", text)
+                                if example_match:
+                                    example_val = example_match.group(1).strip("'\" ")
+                                    clean_desc = re.sub(r"\s*\(e\.g\.,\s*.*?\)", "", text).strip()
+                                else:
+                                    example_val = f"{param_name}_value"
+                                    clean_desc = text
+
+                                param_docs[param_name] = {"description": clean_desc, "example": example_val}
+
+                        def build_param_list(ast_args):
+                            p_list = []
+                            for arg in ast_args:
+                                if arg.arg == 'self':
+                                    continue
+                                meta = param_docs.get(arg.arg, {})
+                                param_data = {
+                                    'name': arg.arg,
+                                    'example': meta.get('example', f"{arg.arg}_value")
+                                }
+                                if meta.get('description'):
+                                    param_data['description'] = meta['description']
+                                p_list.append(param_data)
+                            return p_list
+
+                        args_list = build_param_list(node.args.args)
+                        kwargs_list = build_param_list(node.args.kwonlyargs)
 
                         all_funcs[full_name] = {
-                            'description': description,
+                            'description': main_desc,
                             'args': args_list,
                             'kwargs': kwargs_list,
                             'module': module_name,
@@ -101,12 +132,34 @@ class MCPManager:
                     extracted = {}
                     for tool in tools_result.tools:
                         schema = getattr(tool, 'inputSchema', {})
-                        properties = schema.get('properties', {})
-                        required_fields = schema.get('required', [])
+                        if hasattr(schema, 'model_dump'):
+                            schema_dict = schema.model_dump()
+                        elif hasattr(schema, 'dict'):
+                            schema_dict = schema.dict()
+                        elif isinstance(schema, dict):
+                            schema_dict = schema
+                        else:
+                            schema_dict = getattr(schema, '__dict__', {})
+
+                        properties = schema_dict.get('properties', {})
+                        required_fields = schema_dict.get('required', [])
                         args = []
                         kwargs = []
-                        for param_name in properties.keys():
-                            arg_info = {'name': param_name, 'example': f"'{param_name}_value'"}
+                        for param_name, prop_meta in properties.items():
+                            param_desc = prop_meta.get('description', '')
+                            example_match = re.search(r"\(e\.g\.,\s*(.*?)\)", param_desc)
+                            
+                            if example_match:
+                                example_val = example_match.group(1).strip("'\" ")
+                                clean_desc = re.sub(r"\s*\(e\.g\.,\s*.*?\)", "", param_desc).strip()
+                            else:
+                                example_val = f"{param_name}_value"
+                                clean_desc = param_desc
+
+                            arg_info = {'name': param_name, 'example': example_val}
+                            if clean_desc:
+                                arg_info['description'] = clean_desc
+
                             if param_name in required_fields:
                                 args.append(arg_info)
                             else:

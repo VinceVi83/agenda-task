@@ -282,7 +282,7 @@
 
         async function fetchFunctions() {
             try {
-                const res = await fetch('/function_docs.json');
+                const res = await fetch('/functions');
                 if (res.ok) {
                     const data = await res.json();
                     functionsData = data.functions || data || {};
@@ -290,7 +290,7 @@
                 }
             } catch(e) { 
                 try {
-                    const resFallback = await fetch('function_docs.json');
+                    const resFallback = await fetch('/function_docs.json');
                     if (resFallback.ok) {
                         const data = await resFallback.json();
                         functionsData = data.functions || data || {};
@@ -304,14 +304,21 @@
 
         function populateFunctionsDropdown() {
             const select = document.getElementById('t_func');
-            select.innerHTML = '';
-            Object.keys(functionsData).forEach(funcName => {
+            if (!select) return;
+            select.innerHTML = '<option value="">-- Select a function --</option>';
+            Object.keys(functionsData).sort().forEach(funcName => {
                 const opt = document.createElement('option');
                 opt.value = funcName;
                 opt.textContent = funcName;
                 select.appendChild(opt);
             });
-            select.addEventListener('change', () => renderArgInputs());
+            
+            select.removeEventListener('change', renderArgInputsEventHandler);
+            select.addEventListener('change', renderArgInputsEventHandler);
+        }
+
+        function renderArgInputsEventHandler() {
+            renderArgInputs();
         }
 
         async function refreshData() {
@@ -951,11 +958,10 @@
                 wrapper.innerHTML = `
                     <div class="flex items-center gap-1.5 relative group mb-1">
                         <label class="text-xs text-[#8b949e] font-semibold">Argument: ${arg.name} <span class="text-red-500">*</span></label>
-                        ${exampleText ? `
+                        ${arg.description ? `
                         <span class="text-[10px] bg-[#30363d] text-[#c9d1d9] w-3.5 h-3.5 rounded-full flex items-center justify-center cursor-help font-bold">?</span>
-                        <div class="hidden group-hover:block absolute bottom-full left-0 mb-2 w-64 bg-[#21262d] text-xs text-[#c9d1d9] p-3 rounded-lg border border-[#30363d] shadow-xl z-50 leading-tight">
-                            <strong class="text-white block mb-1">Example Value:</strong>
-                            ${exampleText}
+                        <div class="hidden group-hover:block absolute bottom-full left-0 mb-2 w-64 bg-[#21262d] text-xs text-[#c9d1d9] p-3 rounded-lg border border-[#30363d] shadow-xl z-50 leading-tight whitespace-pre-line">
+                            ${arg.description}
                         </div>
                         ` : ''}
                     </div>
@@ -978,11 +984,10 @@
                 wrapper.innerHTML = `
                     <div class="flex items-center gap-1.5 relative group mb-1">
                         <label class="text-xs text-amber-400 font-semibold">Keyword (Optional): ${kwarg.name}</label>
-                        ${exampleText ? `
+                        ${kwarg.description ? `
                         <span class="text-[10px] bg-[#30363d] text-[#c9d1d9] w-3.5 h-3.5 rounded-full flex items-center justify-center cursor-help font-bold">?</span>
-                        <div class="hidden group-hover:block absolute bottom-full left-0 mb-2 w-64 bg-[#21262d] text-xs text-[#c9d1d9] p-3 rounded-lg border border-[#30363d] shadow-xl z-50 leading-tight">
-                            <strong class="text-white block mb-1">Example Value:</strong>
-                            ${exampleText}
+                        <div class="hidden group-hover:block absolute bottom-full left-0 mb-2 w-64 bg-[#21262d] text-xs text-[#c9d1d9] p-3 rounded-lg border border-[#30363d] shadow-xl z-50 leading-tight whitespace-pre-line">
+                            ${kwarg.description}
                         </div>
                         ` : ''}
                     </div>
