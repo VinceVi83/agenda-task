@@ -578,6 +578,38 @@ func(*{args}, **{kwargs})
             self.tasks = [t for t in self.tasks if t.get('id') != task_id]
             save_json('tasks.json', self.tasks)
 
+    def execute_instant_task(self, task_data: Dict[str, Any]):
+        task = {
+            "id": task_data.get("id") or f"instant_{int(datetime.now(timezone.utc).timestamp())}",
+            "function": task_data.get("target_function"),
+            "args": task_data.get("args", []),
+            "kwargs": task_data.get("kwargs", {}),
+            "status": "active"
+        }
+        if not isinstance(task["kwargs"], dict):
+            task["kwargs"] = {}
+        if not isinstance(task["args"], list):
+            task["args"] = [task["args"]] if task["args"] else []
+            
+        function_full_name = task.get("function", "")
+        logger.info(f"Instant execution requested for function: {function_full_name}")
+        if function_full_name not in self.functions or self.functions[function_full_name].get("is_mcp_server"):
+            if task["args"] and not task["kwargs"]:
+                func_meta = self.functions.get(function_full_name, {}) or {}
+                meta_args = func_meta.get("args", [])
+                for idx, val in enumerate(task["args"]):
+                    if idx < len(meta_args):
+                        task["kwargs"][meta_args[idx]["name"]] = val
+                task["args"] = []
+
+        def run_async_task(coro):
+            return asyncio.run(coro)
+
+        if function_full_name in self.functions and not self.functions[function_full_name].get("is_mcp_server"):
+            self._execute_task_wrapper_simple(task)
+        else:
+            run_async_task(self._execute_mcp_task_via_sse(task))
+
     def _create_date_trigger(self, date_str: str) -> DateTrigger:
         try:
             if 'T' in date_str:

@@ -98,7 +98,27 @@
                     </div>
                 </div>
             </div>
-            <pre id="logContent" class="bg-[#0d1117] border border-[#30363d] rounded p-4 text-xs text-[#79c0ff] font-mono overflow-auto min-h-[500px] h-[calc(100vh-280px)] whitespace-pre-wrap"></pre>
+            <pre id="logContent" class="bg-[#0d1117] border border-[#30363d] rounded p-4 text-xs text-[#79c0ff] font-mono overflow-auto min-h-[250px] h-[calc(50vh-140px)] whitespace-pre-wrap"></pre>
+        <section id="instantTaskPanel" class="hidden bg-[#161b22] border border-[#21262d] rounded-lg overflow-hidden p-4 mt-6 text-[#c9d1d9]">
+            <h3 class="text-md font-semibold text-white mb-4 flex items-center gap-2">🚀 Instant Execution Panel</h3>
+            <form id="instantTaskForm" onsubmit="submitInstantTask(event)" class="space-y-4">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-semibold mb-1">Task ID / Name (Optional)</label>
+                        <input type="text" id="instantName" class="w-full bg-[#0d1117] border border-[#30363d] rounded p-2 text-white text-xs focus:outline-none focus:border-blue-500" placeholder="Auto-generated if left empty">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold mb-1">Target Function (MCP)</label>
+                        <select id="instantTarget" required onchange="renderInstantFields()" class="w-full bg-[#0d1117] border border-[#30363d] rounded p-2 text-white text-xs focus:outline-none focus:border-blue-500">
+                            <option value="">-- Select a function --</option>
+                        </select>
+                    </div>
+                </div>
+                <div id="instantDynamicFields" class="space-y-3 bg-[#0d1117] border border-[#30363d] rounded p-3 hidden"></div>
+                <div class="flex justify-end pt-2 border-t border-[#21262d]">
+                    <button type="submit" class="bg-[#238636] hover:bg-[#2ea043] text-white px-5 py-2 rounded text-xs font-semibold transition-colors flex items-center gap-1 shadow-md">⚡ Run Task Instantly</button>
+                </div>
+            </form>
         </section>
     </main>
 
@@ -340,6 +360,162 @@
             }
         }
 
+        let availableFunctionsCache = {};
+
+        async function populateInstantFunctionsList() {
+            const select = document.getElementById('instantTarget');
+            if (!select) return;
+            
+            const currentVal = select.value;
+            select.innerHTML = '<option value="">Loading functions...</option>';
+            
+            try {
+                // Appel de l'endpoint qui fournit la liste des fonctions (ajuste l'URL si ton endpoint s'appelle autrement, ex: /docs)
+                const res = await fetch('/functions');
+                if (res.ok) {
+                    const data = await res.json();
+                    // Gère le cas où l'API renvoie {"functions": {...}} ou directement le dictionnaire
+                    const functionsList = data.functions || data;
+                    availableFunctionsCache = functionsList;
+                    
+                    select.innerHTML = '<option value="">-- Select a function --</option>';
+                    Object.keys(functionsList).sort().forEach(funcName => {
+                        const opt = document.createElement('option');
+                        opt.value = funcName;
+                        opt.textContent = funcName;
+                        select.appendChild(opt);
+                    });
+                    
+                    if (currentVal && functionsList[currentVal]) {
+                        select.value = currentVal;
+                    }
+                } else {
+                    select.innerHTML = '<option value="">Error loading functions</option>';
+                }
+            } catch (e) {
+                console.error("Failed to fetch available functions", e);
+                select.innerHTML = '<option value="">Network error</option>';
+            }
+        }
+
+        function renderInstantFields() {
+            const select = document.getElementById('instantTarget');
+            const container = document.getElementById('instantDynamicFields');
+            if (!select || !container) return;
+            const funcName = select.value;
+            container.innerHTML = '';
+            if (!funcName || !availableFunctionsCache[funcName]) {
+                container.classList.replace('block', 'hidden');
+                return;
+            }
+            container.classList.replace('hidden', 'block');
+            const meta = availableFunctionsCache[funcName];
+            if (meta.args && meta.args.length > 0) {
+                const title = document.createElement('h4');
+                title.className = "text-xs font-bold text-green-400 mb-2 uppercase";
+                title.textContent = "Required Arguments";
+                container.appendChild(title);
+                meta.args.forEach(arg => {
+                    const div = document.createElement('div');
+                    div.className = "flex flex-col mb-2";
+                    div.innerHTML = `
+                        <label class="text-xs mb-1 font-medium text-gray-300">${arg.name}</label>
+                        <input type="text" data-arg-name="${arg.name}" required class="instant-arg-input bg-[#161b22] border border-[#30363d] rounded p-1.5 text-xs text-white focus:outline-none focus:border-blue-500" placeholder="${arg.example || ''}">
+                    `;
+                    container.appendChild(div);
+                });
+            }
+
+            if (meta.kwargs && meta.kwargs.length > 0) {
+                const title = document.createElement('h4');
+                title.className = "text-xs font-bold text-blue-400 mt-3 mb-2 uppercase";
+                title.textContent = "Optional / Keyword Arguments";
+                container.appendChild(title);
+                meta.kwargs.forEach(kwarg => {
+                    const div = document.createElement('div');
+                    div.className = "flex flex-col mb-2";
+                    div.innerHTML = `
+                        <label class="text-xs mb-1 font-medium text-gray-300">${kwarg.name}</label>
+                        <input type="text" data-kwarg-name="${kwarg.name}" class="instant-kwarg-input bg-[#161b22] border border-[#30363d] rounded p-1.5 text-xs text-white focus:outline-none focus:border-blue-500" placeholder="${kwarg.example || ''}">
+                    `;
+                    container.appendChild(div);
+                });
+            }
+
+            if ((!meta.args || meta.args.length === 0) && (!meta.kwargs || meta.kwargs.length === 0)) {
+                container.innerHTML = '<p class="text-xs text-gray-400 italic">This function takes no arguments.</p>';
+            }
+        }
+
+        async function submitInstantTask(e) {
+            e.preventDefault();
+            let idField = document.getElementById('instantName');
+            let id = idField ? idField.value.trim() : "";
+            const target = document.getElementById('instantTarget').value;
+            
+            if (!target) {
+                alert("Please select a valid target function.");
+                return;
+            }
+
+            if (!id) {
+                id = `instant_${target.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}`;
+            }
+
+            const argInputs = document.querySelectorAll('.instant-arg-input');
+            const kwargInputs = document.querySelectorAll('.instant-kwarg-input');
+            
+            let args = [];
+            let kwargs = {};
+
+            argInputs.forEach(input => {
+                let val = input.value;
+                try { val = JSON.parse(val); } catch(e) {}
+                const name = input.getAttribute('data-arg-name');
+                if (name) {
+                    kwargs[name] = val;
+                } else {
+                    args.push(val);
+                }
+            });
+
+            kwargInputs.forEach(input => {
+                if (input.value.trim() !== "") {
+                    let val = input.value;
+                    try { val = JSON.parse(val); } catch(e) {}
+                    const name = input.getAttribute('data-kwarg-name');
+                    kwargs[name] = val;
+                }
+            });
+
+            const taskData = {
+                id: id,
+                target_function: target,
+                function: target,
+                args: args,
+                kwargs: kwargs,
+                payload: kwargs,
+                schedule_type: "instant"
+            };
+
+            try {
+                const res = await fetch('/tasks/instant', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(taskData)
+                });
+                if (res.ok) {
+                    alert("Instant action triggered successfully!");
+                    setTimeout(fetchLogs, 1500);
+                } else {
+                    const err = await res.json();
+                    alert(`Execution failed: ${JSON.stringify(err.detail) || 'Unknown error'}`);
+                }
+            } catch (err) {
+                alert(`Network error: ${err.message}`);
+            }
+        }
+
         async function fetchLogs() {
             const logContentElement = document.getElementById('logContent');
             const select = document.getElementById('logFileSelect');
@@ -392,8 +568,12 @@
             } else if (tab === 'logs') {
                 logsBtn.className = "py-2 px-4 border-b-2 border-blue-500 text-white font-medium text-sm flex items-center gap-2";
                 logsView.classList.replace('hidden', 'block');
+                document.getElementById('instantTaskPanel').classList.replace('hidden', 'block');
+                populateInstantFunctionsList();
                 await fetchLogProfiles();
                 fetchLogs();
+            } else {
+                document.getElementById('instantTaskPanel').classList.replace('block', 'hidden');
             }
         }
 

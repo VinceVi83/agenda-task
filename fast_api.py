@@ -418,6 +418,31 @@ async def startup_event():
     logger.info("Starting initialization...")
     await manager.initialize_all_functions()
 
+@app.post("/tasks/instant", tags=["Tasks"])
+def add_instant_task(task_data: dict, username: str = Depends(check_credentials)):
+    try:
+        current_scheduler.execute_instant_task(task_data)
+        return {
+            "success": True,
+            "message": "Instant task executed successfully",
+            "task_id": "instant",
+            "next_execution": None
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error executing instant task: {str(e)}")
+
+@app.get("/functions", tags=["System"])
+def get_available_functions(username: str = Depends(check_credentials)):
+    import json
+    import os
+    if not os.path.exists('function_docs.json'):
+        return {"functions": {}}
+    try:
+        with open('function_docs.json', 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
