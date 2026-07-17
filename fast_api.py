@@ -5,6 +5,7 @@ from fastapi.responses import FileResponse
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+import uvicorn
 from typing import Dict, Any, Optional, List
 import json
 import sys
@@ -444,7 +445,6 @@ def get_available_functions(username: str = Depends(check_credentials)):
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
-    import uvicorn
     uvicorn.run(
         app,
         host="0.0.0.0", 

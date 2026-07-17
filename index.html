@@ -454,8 +454,12 @@
             }
         }
 
+        let isSubmittingInstant = false;
+
         async function submitInstantTask(e) {
             e.preventDefault();
+            if (isSubmittingInstant) return;
+
             let idField = document.getElementById('instantName');
             let id = idField ? idField.value.trim() : "";
             const target = document.getElementById('instantTarget').value;
@@ -505,12 +509,20 @@
                 schedule_type: "instant"
             };
 
+            isSubmittingInstant = true;
+            const loader = document.getElementById('loadingModal');
+            if (loader) loader.classList.replace('hidden', 'flex');
+
             try {
                 const res = await fetch('/tasks/instant', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(taskData)
                 });
+                
+                if (loader) loader.classList.replace('flex', 'hidden');
+                isSubmittingInstant = false;
+
                 if (res.ok) {
                     alert("Instant action triggered successfully!");
                     setTimeout(fetchLogs, 1500);
@@ -519,6 +531,8 @@
                     alert(`Execution failed: ${JSON.stringify(err.detail) || 'Unknown error'}`);
                 }
             } catch (err) {
+                if (loader) loader.classList.replace('flex', 'hidden');
+                isSubmittingInstant = false;
                 alert(`Network error: ${err.message}`);
             }
         }
@@ -1135,5 +1149,12 @@
 
         window.onload = init;
     </script>
+    <div id="loadingModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
+        <div class="bg-[#161b22] border border-[#30363d] rounded-xl p-6 max-w-sm w-full text-center shadow-2xl">
+            <div class="animate-spin inline-block w-8 h-8 border-[3px] border-blue-500 border-t-transparent rounded-full mb-4"></div>
+            <p class="text-white font-semibold">Execution in progress...</p>
+            <p class="text-xs text-[#8b949e] mt-1">Please wait for the server response.</p>
+        </div>
+    </div>
 </body>
 </html>
