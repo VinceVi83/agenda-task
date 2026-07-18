@@ -752,7 +752,7 @@ func(*{args}, **{kwargs})
         for task in self.tasks:
             skip_table = task.get('skip_next', [])
             if skip_table:
-                updated_table = [num - 1 for num in skip_table if (num - 1) > 0]
+                updated_table = [num - 1 for num in skip_table if num > 0]
                 task['skip_next'] = updated_table
                 modified = True
                 task_id = task.get('id')
