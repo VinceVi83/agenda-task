@@ -83,7 +83,6 @@ class MCPManager:
                                 else:
                                     example_val = f"{param_name}_value"
                                     clean_desc = text
-
                                 param_docs[param_name] = {"description": clean_desc, "example": example_val}
 
                         def build_param_list(ast_args):
@@ -116,7 +115,7 @@ class MCPManager:
                             'is_mcp_server': False
                         }
             except Exception as e:
-                logger.error(f"Erreur lors de l'analyse du fichier {filepath}: {e}")
+                logger.error(f"Can't scan python script {filepath}: {e}")
 
         self.functions = all_funcs
         return all_funcs
@@ -148,7 +147,6 @@ class MCPManager:
                         for param_name, prop_meta in properties.items():
                             param_desc = prop_meta.get('description', '')
                             example_match = re.search(r"\(e\.g\.,\s*(.*?)\)", param_desc)
-                            
                             if example_match:
                                 example_val = example_match.group(1).strip("'\" ")
                                 clean_desc = re.sub(r"\s*\(e\.g\.,\s*.*?\)", "", param_desc).strip()
@@ -173,13 +171,13 @@ class MCPManager:
                         }
                     return extracted
         except Exception as e:
-            logger.error(f"Erreur extraction outils {identifier}: {e}")
+            logger.error(f"Extraction MCP tools failed {identifier}: {e}")
             return {}
 
     async def initialize_all_functions(self):
         try:
             functions = self._parse_static_files()
-            logger.info(f"Statiques chargés : {len(functions)} fonctions.")
+            logger.info(f"Static functions load : {len(functions)}.")
             mcp_servers = getattr(cfg.system, 'mcp_servers', [])
             for server_entry in mcp_servers:
                 server_dict = vars(server_entry) if hasattr(server_entry, '__dict__') else server_entry
@@ -188,27 +186,26 @@ class MCPManager:
                     host = config.get('host', '127.0.0.1')
                     port = config.get('port', '8001')
                     sse_url = f"http://{host}:{port}/sse"
-                    logger.info(f"Scan dynamique MCP : {identifier} sur {sse_url}")
+                    logger.info(f"Scan SSE MCP : {identifier} sur {sse_url}")
                     tools = await self._fetch_tools_from_server(identifier, config)
                     if tools:
                         functions.update(tools)
-                        logger.info(f"Fusion de {len(tools)} outils pour {identifier}")
+                        logger.info(f"Add {len(tools)} tools from {identifier}")
                     else:
-                        logger.warning(f"Aucun outil trouvé pour {identifier} ou serveur injoignable.")
+                        logger.warning(f"No tools found from {identifier} or server unreachable.")
             with open('function_docs.json', 'w', encoding='utf-8') as f:
                 json.dump({'functions': functions}, f, indent=4, ensure_ascii=False)
             self.functions_cache = functions
             self.ready.set()
-            logger.info(f"FIN initialize_all_functions : Total {len(functions)} fonctions enregistrées.")
-            
+            logger.info(f"End initialize_all_functions : {len(functions)} functions recorded.")
         except Exception as e:
-            logger.error(f"CRASH FATAL dans initialize_all_functions : {e}", exc_info=True)
+            logger.error(f"Crash in initialize_all_functions : {e}", exc_info=True)
 
     async def refresh_docs(self):
         def json_serial(obj):
             if isinstance(obj, set):
                 return list(obj)
-            raise TypeError(f"Type {type(obj)} non serializable")
+            raise TypeError(f"Error refresh_docs : {type(obj)}")
 
         async with self.lock:
             if os.path.exists('function_docs.json'):
@@ -251,19 +248,19 @@ class MCPManager:
             await self.refresh_docs() 
             return True
         except Exception as e:
-            logger.error(f"Connexion échouée {identifier}: {e}")
+            logger.error(f"Connection failed {identifier}: {e}")
             return False
 
     async def call_tool(self, tool_path, arguments):
         if not self.ready.is_set():
-            logger.warning("MCPManager pas encore prêt, attente...")
+            logger.warning("MCPManager not ready, waiting...")
             await self.ready.wait()
 
         ident = tool_path.split('.')[0]
         tool_name = tool_path.split('.')[-1]
         is_connected = await self.ensure_connection(ident)
         if not is_connected:
-            raise ConnectionError(f"Serveur MCP '{ident}' injoignable.")
+            raise ConnectionError(f"MCP Server'{ident}' unreachable.")
         return await self.sessions[ident]["session"].call_tool(tool_name, arguments=arguments)
 
     def load_functions(self):
@@ -334,12 +331,12 @@ class scheduler:
         self.functions = {}
         self.manager = mcp_manager
         if not self.manager.functions_cache:
-            logger.info("Attente de la fin de l'initialisation MCP...")
+            logger.info("Wainting end of self.functions_cache...")
             try:
                 loop = asyncio.get_event_loop()
                 loop.run_until_complete(self.manager.ready.wait())
             except Exception as e:
-                logger.error(f"Erreur attente init MCP: {e}")
+                logger.error(f"Error waiting self.functions_cache: {e}")
 
         self._load_functions()
         if not isinstance(self.tasks, list):
@@ -348,18 +345,15 @@ class scheduler:
         self.config_file = 'config.json'
         self.days_to_show = self._load_config().get('days_to_show', 7)
         self._init_internal_jobs()
-        if not self.manager.functions_cache:
-            logger.info("En attente de la fin de l'initialisation MCP...")
-            loop = asyncio.get_event_loop()
 
     def set_event_loop(self, loop):
         self.loop = loop
 
     def _handle_task_success(self, task: dict, result: Any):
-        logger.info(f"Task {task.get('id')} réussie: {result}")
+        logger.info(f"Task {task.get('id')} executed: {result}")
 
     def _handle_task_failure(self, task: dict, error_msg: str):
-        logger.error(f"Task {task.get('id')} a échoué: {error_msg}")
+        logger.error(f"Task {task.get('id')} failed: {error_msg}")
 
     def _init_internal_jobs(self):
         try:
@@ -524,10 +518,10 @@ class scheduler:
             result = await self.manager.call_tool(function_full_name, args)
             self._handle_task_success(task, result)
         except asyncio.TimeoutError:
-            logger.error(f"Timeout: MCPManager non prêt pour {function_full_name}")
+            logger.error(f"Timeout: MCPManager unreachable {function_full_name}")
             self._handle_task_failure(task, "MCPManager timeout")
         except Exception as e:
-            logger.error(f"Erreur exécution: {e}")
+            logger.error(f"Execution error: {e}")
             self._handle_task_failure(task, str(e))
 
     def _execute_task_wrapper_simple(self, task: dict):
@@ -593,33 +587,29 @@ func(*{args}, **{kwargs})
             raise
 
     def _execute_task_wrapper(self, task: dict):
-        logger.info(f"Début exécution wrapper pour {task.get('id')}")
-        if task.get('status') == 'pause':
-            logger.info(f"Task {task.get('id')} est en pause. Skipping.")
+        if task.get('status') == 'pause' or 0 in task.get('skip_next'):
+            logger.info(f"Task {task.get('id')} skipped or paused.")
             return
+        logger.info(f"Task {task.get('id')} will be executed")
 
         def run_async_task(coro):
             return asyncio.run(coro)
 
         try:
             if hasattr(self, 'manager') and not self.manager.ready.is_set():
-                logger.info("En attente de ready...")
                 run_async_task(self.manager.ready.wait())
-
-            if task.get('status') == 'pause':
-                return
 
             function_full_name = task.get("function", "")
             if function_full_name in self.functions and not self.functions[function_full_name].get("is_mcp_server"):
                 logger.error('_execute_task_wrapper_simple')
                 self._execute_task_wrapper_simple(task)
             else:
-                logger.info(f"Fonction {function_full_name} routage vers MCP...")
+                logger.info(f"Call {function_full_name} from MCP server...")
                 run_async_task(self._execute_mcp_task_via_sse(task))
             self._cleanup_task(task)
-            logger.info(f"Fin exécution {task.get('id')}")
+            logger.info(f"Task {task.get('id')} executed")
         except Exception as e:
-            logger.error(f"Erreur fatale exécution: {e}", exc_info=True)
+            logger.error(f"Execution error: {e}", exc_info=True)
 
     def _cleanup_task(self, task: dict):
         logger.error("fin _cleanup_task")
