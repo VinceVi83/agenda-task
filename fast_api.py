@@ -267,7 +267,7 @@ def remove_task(task_id: str, username: str = Depends(check_credentials)):
     }
 
 @app.post("/tasks/{task_id}/reschedule", tags=["Tasks"], response_model=TaskResponse)
-def reschedule_task(task_id: str, request: RescheduleRequest):
+def reschedule_task(task_id: str, request: RescheduleRequest, username: str = Depends(check_credentials)):
     try:
         current_scheduler.reschedule(
             task_id=task_id,

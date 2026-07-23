@@ -612,14 +612,12 @@ func(*{args}, **{kwargs})
             logger.error(f"Execution error: {e}", exc_info=True)
 
     def _cleanup_task(self, task: dict):
-        logger.error("fin _cleanup_task")
         task_id = task.get('id')
         if not task_id:
             return
         self._check_and_reset_expired_reschedule(task_id, task)
         if task.get('trigger_type') == 'date':
-            self.tasks = [t for t in self.tasks if t.get('id') != task_id]
-            save_json('tasks.json', self.tasks)
+            self.remove_task(task_id)
 
     def execute_instant_task(self, task_data: Dict[str, Any]):
         task = {
