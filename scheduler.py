@@ -227,6 +227,10 @@ class MCPManager:
             self.functions_cache = functions
 
     async def ensure_connection(self, identifier):
+        current_loop = asyncio.get_running_loop()
+        if not hasattr(self, 'lock') or getattr(self.lock, '_loop', None) != current_loop:
+            self.lock = asyncio.Lock()
+
         if identifier in self.sessions:
             try:
                 await self.sessions[identifier]["session"].list_tools()
