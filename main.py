@@ -11,7 +11,7 @@ import asyncio
 import nest_asyncio
 from datetime import datetime
 from typing import Any, Dict, List
-from config_loader import cfg, setup_logging
+from common.conf_manager import cfg, setup_logging
 from mcp import ClientSession
 from mcp.client.sse import sse_client
 

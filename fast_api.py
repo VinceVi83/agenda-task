@@ -13,8 +13,9 @@ import os
 import ipaddress
 from fastapi import Request
 import asyncio
-from config_loader import cfg, setup_logging, Utils
-
+from pathlib import Path
+from fastapi.responses import JSONResponse
+from common.conf_manager import cfg, setup_logging, Utils
 import logging
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -350,19 +351,27 @@ def shutdown_scheduler(username: str = Depends(check_credentials)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error shutting down scheduler: {str(e)}")
 
-from fastapi.responses import FileResponse
+def _load_function_docs() -> dict:
+    file_path = cfg.config_dir / "function_docs.json"
+    if not file_path.is_file():
+        return {"functions": {}}
+    try:
+        with file_path.open("r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/gui", tags=["General"])
 def serve_gui(username: str = Depends(check_credentials)):
     return FileResponse("index.html")
 
+@app.get("/functions", tags=["System"])
+def get_available_functions(_: str = Depends(check_credentials)):
+    return _load_function_docs()
+
 @app.get("/function_docs.json", tags=["General"])
-def serve_function_docs(username: str = Depends(check_credentials)):
-    if os.path.exists("function_docs.json"):
-        from fastapi.responses import JSONResponse
-        with open("function_docs.json", "r", encoding="utf-8") as f:
-            return JSONResponse(content=json.load(f))
-    return JSONResponse(content={"functions": {}}, status_code=404)
+def serve_function_docs(_: str = Depends(check_credentials)):
+    return _load_function_docs()
 
 @app.get("/api/config", tags=["General"])
 def get_ui_config(username: str = Depends(check_credentials)):
@@ -431,18 +440,6 @@ def add_instant_task(task_data: dict, username: str = Depends(check_credentials)
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error executing instant task: {str(e)}")
-
-@app.get("/functions", tags=["System"])
-def get_available_functions(username: str = Depends(check_credentials)):
-    import json
-    import os
-    if not os.path.exists('function_docs.json'):
-        return {"functions": {}}
-    try:
-        with open('function_docs.json', 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     uvicorn.run(

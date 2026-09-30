@@ -10,7 +10,7 @@ import signal
 import threading
 import sys
 
-from config_loader import cfg
+from common.conf_manager import cfg
 
 import logging
 logger = logging.getLogger(__name__)

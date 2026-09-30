@@ -8,6 +8,7 @@ import logging
 import json
 import os
 import sys
+from pathlib import Path
 import subprocess
 import copy
 import asyncio
@@ -20,7 +21,7 @@ from apscheduler.events import EVENT_ALL
 from mcp import ClientSession
 from mcp.client.sse import sse_client
 from datetime import datetime, timezone, timedelta
-from config_loader import cfg
+from common.conf_manager import cfg
 
 import logging
 logger = logging.getLogger(__name__)
@@ -31,6 +32,8 @@ class MCPManager:
         self.static_files = getattr(cfg.system, 'scripts', [])
         self.lock = asyncio.Lock()
         self.ready = asyncio.Event()
+        self.function_docs_path = cfg.config_dir / "function_docs.json"
+        self.tasks_json_path = cfg.config_dir / 'tasks.json'
         self.functions_cache = self._parse_static_files()
         self.mcp_known_servers = []
         for item in getattr(cfg.system, 'mcp_servers', []):
@@ -193,7 +196,7 @@ class MCPManager:
                         logger.info(f"Add {len(tools)} tools from {identifier}")
                     else:
                         logger.warning(f"No tools found from {identifier} or server unreachable.")
-            with open('function_docs.json', 'w', encoding='utf-8') as f:
+            with self.function_docs_path.open("w", encoding="utf-8") as f:
                 json.dump({'functions': functions}, f, indent=4, ensure_ascii=False)
             self.functions_cache = functions
             self.ready.set()
@@ -208,10 +211,10 @@ class MCPManager:
             raise TypeError(f"Error refresh_docs : {type(obj)}")
 
         async with self.lock:
-            if os.path.exists('function_docs.json'):
-                with open('function_docs.json', 'r', encoding='utf-8') as f:
+            if self.function_docs_path.is_file():
+                with self.function_docs_path.open("r", encoding="utf-8") as f:
                     data = json.load(f)
-                    functions = data.get('functions', {})
+                    functions = data.get("functions", {})
             else:
                 functions = self._parse_static_files()
             for ident, data in self.sessions.items():
@@ -222,8 +225,8 @@ class MCPManager:
                         'module': ident,
                         'is_mcp_server': True
                     }
-            with open('function_docs.json', 'w', encoding='utf-8') as f:
-                json.dump({'functions': functions}, f, indent=4, default=json_serial)
+            with self.function_docs_path.open("w", encoding="utf-8") as f:
+                json.dump({"functions": functions}, f, indent=4, default=json_serial)
             self.functions_cache = functions
 
     async def ensure_connection(self, identifier):
@@ -269,23 +272,23 @@ class MCPManager:
 
     def load_functions(self):
         functions = self.functions_cache.copy()
-        for ident, data in self.sessions.items():
-            pass 
-
-        if os.path.exists('function_docs.json'):
-            try:
-                with open('function_docs.json', 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    functions.update(data.get('functions', {}))
-            except: pass
+        try:
+            with self.function_docs_path.open("r", encoding="utf-8") as f:
+                data = json.load(f)
+            functions.update(data.get("functions", {}))
+        except FileNotFoundError:
+            pass
+        except (json.JSONDecodeError, OSError):
+            pass
         return functions
 
-def read_json(file_path):
-    if not os.path.exists(file_path):
+def read_json(file_path: Path | str):
+    file_path = Path(file_path)
+    if not file_path.exists():
         logger.info(f"File {file_path} not found, creating with an empty array")
         return []
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
+        with file_path.open("r", encoding="utf-8") as f:
             data = json.load(f)
         logger.info(f"File read : {file_path}")
         return data
@@ -293,9 +296,11 @@ def read_json(file_path):
         logger.error(f"Error : The file {file_path} is not a valid JSON. Error : {e}")
         return []
 
-def save_json(file_path, data):
+
+def save_json(file_path: Path | str, data):
+    file_path = Path(file_path)
     try:
-        with open(file_path, 'w', encoding='utf-8') as f:
+        with file_path.open("w", encoding="utf-8") as f:
             json.dump(data, f, indent=4)
         logger.info(f"Data saved in : {file_path}")
     except Exception as e:
@@ -331,7 +336,7 @@ class scheduler:
         self.scheduler = BackgroundScheduler()
         self.scheduler.start()
         self.loop = None
-        self.tasks = read_json('tasks.json')
+        self.tasks = read_json(cfg.config_dir / 'tasks.json')
         self.functions = {}
         self.manager = mcp_manager
         if not self.manager.functions_cache:
@@ -412,7 +417,7 @@ class scheduler:
                     t['status'] = 'pause'
                     break
             job.modify(args=[task])
-            save_json('tasks.json', self.tasks)
+            save_json(self.tasks_json_path, self.tasks)
             logger.info(f"Task paused : {task_id}")
             return True
         except Exception as e:
@@ -432,7 +437,7 @@ class scheduler:
                     t['status'] = 'active'
                     break
             job.modify(args=[task])
-            save_json('tasks.json', self.tasks)
+            save_json(self.tasks_json_path, self.tasks)
             logger.info(f"Task resumed : {task_id}")
             return True
         except Exception as e:
@@ -706,7 +711,7 @@ func(*{args}, **{kwargs})
             )
             if not on_load:
                 self.tasks.append(task)
-                save_json('tasks.json', self.tasks)
+                save_json(self.tasks_json_path, self.tasks)
             logger.info(f"Task added : {task_id} targeting {function_full_name}")
         except Exception as e:
             logger.error(f"Error during task addition for {task_id}: {e}")
@@ -733,7 +738,7 @@ func(*{args}, **{kwargs})
                     del self.tasks[i]
                     break
             if save:
-                save_json('tasks.json', self.tasks)
+                save_json(self.tasks_json_path, self.tasks)
             logger.info(f"Task removed : {task_id}")
         except Exception as e:
             logger.error(f"Error during task removal for {task_id}: {e}")
@@ -757,7 +762,7 @@ func(*{args}, **{kwargs})
                     except Exception as e:
                         logger.error(f"Error during scheduler job update for {task_id}: {e}")
         if modified:
-            save_json('tasks.json', self.tasks)
+            save_json(self.tasks_json_path, self.tasks)
             logger.info("Data saved after global skip decrement")
 
     def add_skip(self, task_id: str, number: int):
@@ -780,7 +785,7 @@ func(*{args}, **{kwargs})
                 skip_table.append(number)
                 logger.info(f"Number {number} added to skip_next for task {task_id}")
             job.modify(args=[task])
-            save_json('tasks.json', self.tasks)
+            save_json(self.tasks_json_path, self.tasks)
         except Exception as e:
             logger.error(f"Error during skip modification for task {task_id}: {e}")
 
@@ -796,7 +801,7 @@ func(*{args}, **{kwargs})
                 skip_table.remove(number)
                 task['skip_next'] = skip_table
                 job.modify(args=[task])
-                save_json('tasks.json', self.tasks)
+                save_json(self.tasks_json_path, self.tasks)
                 logger.info(f"Number {number} removed from skip_next for task {task_id}")
             else:
                 logger.error(f"Number {number} not found in skip_next for task {task_id}")
@@ -851,4 +856,4 @@ func(*{args}, **{kwargs})
                 logger.error(f"Error during loading of task {task.get('id')} from tasks.json: {e}")
         if tasks_to_remove:
             self.tasks = [t for t in self.tasks if t.get('id') not in tasks_to_remove]
-            save_json('tasks.json', self.tasks)
+            save_json(self.tasks_json_path, self.tasks)

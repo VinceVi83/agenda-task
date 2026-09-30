@@ -11,7 +11,7 @@ import requests
 import glob
 import os
 
-from config_loader import cfg, setup_logging
+from common.conf_manager import cfg, setup_logging
 import logging
 setup_logging()
 logger = logging.getLogger(__name__)

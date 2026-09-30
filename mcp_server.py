@@ -1,7 +1,7 @@
 import subprocess
 from fastmcp import FastMCP
 from datetime import datetime
-from config_loader import cfg, Utils, setup_logging
+from common.conf_manager import cfg, Utils, setup_logging
 
 import logging
 logger = logging.getLogger(__name__)
