@@ -336,7 +336,8 @@ class scheduler:
         self.scheduler = BackgroundScheduler()
         self.scheduler.start()
         self.loop = None
-        self.tasks = read_json(cfg.config_dir / 'tasks.json')
+        self.tasks_json_path = cfg.config_dir / 'tasks.json'
+        self.tasks = read_json(self.tasks_json_path)
         self.functions = {}
         self.manager = mcp_manager
         if not self.manager.functions_cache:
