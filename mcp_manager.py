@@ -2,6 +2,9 @@ import asyncio
 from mcp.client.sse import sse_client
 from mcp import ClientSession
 import threading
+import logging
+
+logger = logging.getLogger(__name__)
 
 class MCPManager:
     """MCP Manager

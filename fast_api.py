@@ -1,9 +1,9 @@
-import secrets
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi import Depends
-from fastapi.responses import FileResponse
-from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import uvicorn
 from typing import Dict, Any, Optional, List
@@ -11,11 +11,14 @@ import json
 import sys
 import os
 import ipaddress
-from fastapi import Request
+import secrets
 import asyncio
+import threading
+import functools
+from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
-from fastapi.responses import JSONResponse
 from common.conf_manager import cfg, setup_logging, Utils
+from common.llm_client import llm
 import logging
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -23,11 +26,26 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from scheduler import scheduler, MCPManager
 
+STT_HTTP_PORT = 9501
+STT_DIR = "/tmp/audio"
+os.makedirs(STT_DIR, exist_ok=True)
+STT_MAX_BYTES = 25 * 1024 * 1024
+
+def _start_stt_file_server():
+    handler = functools.partial(SimpleHTTPRequestHandler, directory=STT_DIR)
+    httpd = ThreadingHTTPServer(("0.0.0.0", STT_HTTP_PORT), handler)
+    httpd.serve_forever()
+
+threading.Thread(target=_start_stt_file_server, daemon=True).start()
+main_loop = None
+
 app = FastAPI(
     title="Scheduler API",
     description="API to manage scheduled tasks",
     version="1.0.0"
 )
+app.mount("/stt_files", StaticFiles(directory=STT_DIR), name="stt_files")
+
 
 security = HTTPBasic(auto_error=False)
 
@@ -418,9 +436,66 @@ def list_log_profiles(username: str = Depends(check_credentials)):
     profiles = ["Default"] + extra_profiles
     return {"profiles": profiles}
 
+
+async def _stt_cleanup(path: str):
+    await asyncio.sleep(300)
+    if os.path.exists(path):
+        os.remove(path)
+
+def _stt_transcribe(audio_url: str) -> str:
+    try:
+        result = llm.transcribe(audio_url)['content']
+        logger.info(f"Transcription result: {result}")
+        fut = asyncio.run_coroutine_threadsafe(
+            manager.call_tool("dllb-skill.ask_control_multiroom", {"request_str": result}),
+            main_loop,
+        )
+        res = fut.result(timeout=180)
+        return f"{audio_url} -> {result}\n {res}"
+    except Exception as e:
+        logger.error(f"STT error: {e}")
+        return f"[placeholder] audio_url = {audio_url} \nError: {e}"
+
+@app.post("/stt", tags=["STT"])
+async def speech_to_text(
+    request: Request,
+    audio: UploadFile = File(...),
+    username: str = Depends(check_credentials),
+):
+    data = await audio.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty audio file uploaded")
+    if len(data) > STT_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="Too large audio file uploaded (max 25MB)")
+
+    ctype = (audio.content_type or "").lower()
+    ext = ".mp4" if "mp4" in ctype else ".ogg" if "ogg" in ctype else ".webm"
+
+    filename = f"{secrets.token_urlsafe(16)}{ext}"
+    path = os.path.join(STT_DIR, filename)
+    with open(path, "wb") as f:
+        f.write(data)
+
+    audio_url = f"http://{SERVER_IP}:{STT_HTTP_PORT}/{filename}"
+
+    try:
+        text = await asyncio.to_thread(_stt_transcribe, audio_url)
+        return {"text": text}
+    except Exception as e:
+        logger.error(f"STT error: {e}")
+        raise HTTPException(status_code=500, detail=f"Erreur de transcription: {e}")
+    finally:
+        asyncio.create_task(_stt_cleanup(path))
+
+@app.on_event("startup")
+async def _capture_loop():
+    global main_loop
+    main_loop = asyncio.get_running_loop()
+
 @app.on_event("startup")
 async def startup_event():
-    global manager, current_scheduler
+    global manager, current_scheduler, main_loop
+    main_loop = asyncio.get_running_loop()
     loop = asyncio.get_running_loop()
     manager = MCPManager()
     current_scheduler = scheduler(manager)

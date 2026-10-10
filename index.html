@@ -51,6 +51,7 @@
             <button id="tabCalBtn" onclick="switchTab('calendar')" class="py-2 px-4 border-b-2 border-blue-500 text-white font-medium text-sm flex items-center gap-2">📅 Calendar</button>
             <button id="tabListBtn" onclick="switchTab('list')" class="py-2 px-4 border-b-2 border-transparent text-[#8b949e] hover:text-white font-medium text-sm flex items-center gap-2">📋 List</button>
             <button id="tabLogsBtn" onclick="switchTab('logs')" class="py-2 px-4 border-b-2 border-transparent text-[#8b949e] hover:text-white font-medium text-sm flex items-center gap-2">📜 Logs</button>
+            <button id="tabSttBtn" onclick="switchTab('stt')" class="py-2 px-4 border-b-2 border-transparent text-[#8b949e] hover:text-white font-medium text-sm flex items-center gap-2">🎤 Multiroom</button>
         </div>
 
         <section id="calendarView" class="block">
@@ -99,6 +100,7 @@
                 </div>
             </div>
             <pre id="logContent" class="bg-[#0d1117] border border-[#30363d] rounded p-4 text-xs text-[#79c0ff] font-mono overflow-auto min-h-[250px] h-[calc(50vh-140px)] whitespace-pre-wrap"></pre>
+        </section> 
         <section id="instantTaskPanel" class="hidden bg-[#161b22] border border-[#21262d] rounded-lg overflow-hidden p-4 mt-6 text-[#c9d1d9]">
             <h3 class="text-md font-semibold text-white mb-4 flex items-center gap-2">Instant Execution Panel</h3>
             <form id="instantTaskForm" onsubmit="submitInstantTask(event)" class="space-y-4">
@@ -119,6 +121,27 @@
                     <button type="submit" class="bg-[#238636] hover:bg-[#2ea043] text-white px-5 py-2 rounded text-xs font-semibold transition-colors flex items-center gap-1 shadow-md">⚡ Run Task Instantly</button>
                 </div>
             </form>
+        </section>
+        <section id="sttView" class="hidden bg-[#161b22] border border-[#21262d] rounded-lg overflow-hidden p-6 text-[#c9d1d9]">
+            <h3 class="text-md font-semibold text-white mb-4">🎤 Multiroom (push-to-talk)</h3>
+            <div class="flex flex-col items-center gap-4">
+                <button id="sttPttBtn"
+                        class="w-32 h-32 rounded-full bg-[#238636] hover:bg-[#2ea043] text-white font-semibold text-sm select-none touch-none transition-colors">
+                    Maintain<br>to talk
+                </button>
+                <div id="sttStatus" class="text-xs text-[#8b949e]">Ready</div>
+            </div>
+
+            <div class="mt-6">
+                <label class="block text-xs text-[#8b949e] mb-1">Transcription</label>
+                <textarea id="sttResult" rows="6"
+                        class="w-full bg-[#0d1117] border border-[#30363d] rounded p-3 text-sm text-[#c9d1d9] font-mono focus:outline-none focus:border-blue-500"
+                        placeholder="Result..."></textarea>
+                <div class="flex gap-2 mt-2">
+                    <button onclick="sttCopy()" class="px-3 py-1 text-xs bg-[#21262d] hover:bg-[#30363d] rounded">Copy</button>
+                    <button onclick="document.getElementById('sttResult').value=''" class="px-3 py-1 text-xs bg-[#21262d] hover:bg-[#30363d] rounded">Clear</button>
+                </div>
+            </div>
         </section>
     </main>
 
@@ -564,37 +587,148 @@
             }
         }
 
+        let sttRecorder = null;
+        let sttStream = null;
+        let sttChunks = [];
+        let sttHolding = false;
+
+        function sttSetStatus(msg, color) {
+            const el = document.getElementById('sttStatus');
+            el.textContent = msg;
+            el.style.color = color || '#8b949e';
+        }
+
+        async function sttStart() {
+            if (sttRecorder) return;
+            sttHolding = true;
+            try {
+                sttStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            } catch (e) {
+                sttSetStatus('Micro refusé ou indisponible (HTTPS requis)', '#f85149');
+                sttHolding = false;
+                return;
+            }
+            if (!sttHolding) {
+                sttStream.getTracks().forEach(t => t.stop());
+                sttStream = null;
+                return;
+            }
+
+            sttChunks = [];
+            sttRecorder = new MediaRecorder(sttStream);
+            sttRecorder.ondataavailable = e => { if (e.data.size > 0) sttChunks.push(e.data); };
+            sttRecorder.onstop = sttSend;
+            sttRecorder.start();
+
+            document.getElementById('sttPttBtn').classList.replace('bg-[#238636]', 'bg-red-600');
+            sttSetStatus('🔴 Recording in progress...', '#f85149');
+        }
+
+        function sttStop() {
+            sttHolding = false;
+            if (sttRecorder && sttRecorder.state === 'recording') {
+                sttRecorder.stop();
+            }
+            document.getElementById('sttPttBtn').classList.replace('bg-red-600', 'bg-[#238636]');
+        }
+
+        async function sttSend() {
+            const mime = (sttRecorder && sttRecorder.mimeType) || 'audio/webm';
+            const blob = new Blob(sttChunks, { type: mime });
+
+            if (sttStream) sttStream.getTracks().forEach(t => t.stop());
+            sttStream = null;
+            sttRecorder = null;
+
+            if (blob.size < 1000) {
+                sttSetStatus('Recording too short', '#d29922');
+                return;
+            }
+
+            sttSetStatus('⏳ Transcribing...', '#58a6ff');
+            const ext = mime.includes('mp4') ? 'mp4' : mime.includes('ogg') ? 'ogg' : 'webm';
+            const form = new FormData();
+            form.append('audio', blob, `recording.${ext}`);
+
+            try {
+                const res = await fetch('/stt', { method: 'POST', body: form });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || res.statusText);
+
+                const out = document.getElementById('sttResult');
+                out.value += (out.value ? '\n' : '') + (data.text || '');
+                sttSetStatus('Ready');
+            } catch (e) {
+                sttSetStatus('Error : ' + e.message, '#f85149');
+            }
+        }
+
+        function sttCopy() {
+            const out = document.getElementById('sttResult');
+            navigator.clipboard.writeText(out.value);
+            sttSetStatus('Copied', '#3fb950');
+        }
+
+        function initStt() {
+            const btn = document.getElementById('sttPttBtn');
+            btn.addEventListener('pointerdown', e => { e.preventDefault(); sttStart(); });
+            btn.addEventListener('pointerup', sttStop);
+            btn.addEventListener('pointerleave', sttStop);
+            btn.addEventListener('pointercancel', sttStop);
+            btn.addEventListener('contextmenu', e => e.preventDefault());
+            document.addEventListener('keydown', e => {
+                if (e.code !== 'Space' || e.repeat) return;
+                if (document.getElementById('sttView').classList.contains('hidden')) return;
+                if (['TEXTAREA', 'INPUT', 'SELECT'].includes(document.activeElement.tagName)) return;
+                e.preventDefault();
+                sttStart();
+            });
+            document.addEventListener('keyup', e => {
+                if (e.code === 'Space') sttStop();
+            });
+        }
+        initStt();
+
         async function switchTab(tab) {
             const calBtn = document.getElementById('tabCalBtn');
             const listBtn = document.getElementById('tabListBtn');
             const logsBtn = document.getElementById('tabLogsBtn');
+            const sttBtn = document.getElementById('tabSttBtn');
             const calView = document.getElementById('calendarView');
             const listView = document.getElementById('listView');
             const logsView = document.getElementById('logsView');
+            const sttView = document.getElementById('sttView');
 
-            calBtn.className = "py-2 px-4 border-b-2 border-transparent text-[#8b949e] hover:text-white font-medium text-sm flex items-center gap-2";
-            listBtn.className = "py-2 px-4 border-b-2 border-transparent text-[#8b949e] hover:text-white font-medium text-sm flex items-center gap-2";
-            logsBtn.className = "py-2 px-4 border-b-2 border-transparent text-[#8b949e] hover:text-white font-medium text-sm flex items-center gap-2";
-            
-            calView.classList.replace('block', 'hidden');
-            listView.classList.replace('block', 'hidden');
-            logsView.classList.replace('block', 'hidden');
+            const inactive = "py-2 px-4 border-b-2 border-transparent text-[#8b949e] hover:text-white font-medium text-sm flex items-center gap-2";
+            const active = "py-2 px-4 border-b-2 border-blue-500 text-white font-medium text-sm flex items-center gap-2";
+
+            [calBtn, listBtn, logsBtn, sttBtn].forEach(b => b.className = inactive);
+            [calView, listView, logsView, sttView].forEach(v => {
+                v.classList.remove('block');
+                v.classList.add('hidden');
+            });
+            const instantPanel = document.getElementById('instantTaskPanel');
+            instantPanel.classList.remove('block');
+            instantPanel.classList.add('hidden');
+
+            const show = v => { v.classList.remove('hidden'); v.classList.add('block'); };
 
             if (tab === 'calendar') {
-                calBtn.className = "py-2 px-4 border-b-2 border-blue-500 text-white font-medium text-sm flex items-center gap-2";
-                calView.classList.replace('hidden', 'block');
+                calBtn.className = active;
+                show(calView);
             } else if (tab === 'list') {
-                listBtn.className = "py-2 px-4 border-b-2 border-blue-500 text-white font-medium text-sm flex items-center gap-2";
-                listView.classList.replace('hidden', 'block');
+                listBtn.className = active;
+                show(listView);
             } else if (tab === 'logs') {
-                logsBtn.className = "py-2 px-4 border-b-2 border-blue-500 text-white font-medium text-sm flex items-center gap-2";
-                logsView.classList.replace('hidden', 'block');
-                document.getElementById('instantTaskPanel').classList.replace('hidden', 'block');
+                logsBtn.className = active;
+                show(logsView);
+                show(instantPanel);
                 populateInstantFunctionsList();
                 await fetchLogProfiles();
                 fetchLogs();
-            } else {
-                document.getElementById('instantTaskPanel').classList.replace('block', 'hidden');
+            } else if (tab === 'stt') {
+                sttBtn.className = active;
+                show(sttView);
             }
         }
 
