@@ -15,6 +15,7 @@ import asyncio
 import nest_asyncio
 import asyncio
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.jobstores.base import JobLookupError
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
 from apscheduler.events import EVENT_ALL
@@ -220,10 +221,26 @@ class MCPManager:
             for ident, data in self.sessions.items():
                 tools = await data["session"].list_tools()
                 for tool in tools.tools:
+                    schema = getattr(tool, 'inputSchema', None) or {}
+                    props = schema.get('properties', {}) or {}
+                    required = set(schema.get('required', []) or [])
+
+                    args, kwargs = [], []
+                    for pname, pinfo in props.items():
+                        entry = {'name': pname}
+                        if isinstance(pinfo, dict) and pinfo.get('description'):
+                            entry['description'] = pinfo['description']
+                        if pname in required:
+                            args.append(entry)
+                        else:
+                            kwargs.append(entry)
+
                     functions[f"{ident}.{tool.name}"] = {
                         'description': tool.description,
                         'module': ident,
-                        'is_mcp_server': True
+                        'is_mcp_server': True,
+                        'args': args,
+                        'kwargs': kwargs
                     }
             with self.function_docs_path.open("w", encoding="utf-8") as f:
                 json.dump({"functions": functions}, f, indent=4, default=json_serial)
@@ -522,7 +539,12 @@ class scheduler:
 
     async def _execute_mcp_task_via_sse(self, task: dict):
         function_full_name = task.get("function")
-        args = task.get("kwargs", {})
+        args = dict(task.get("kwargs") or {})
+        if task.get("args") and not args:
+            meta_args = (self.functions.get(function_full_name, {}) or {}).get("args", [])
+            for idx, val in enumerate(task["args"]):
+                if idx < len(meta_args):
+                    args[meta_args[idx]["name"]] = val
         try:
             await asyncio.wait_for(self.manager.ready.wait(), timeout=10.0)
             result = await self.manager.call_tool(function_full_name, args)
@@ -731,18 +753,25 @@ func(*{args}, **{kwargs})
         except Exception as e:
             logger.error(f"Error during task modification for {task_id}: {e}")
 
-    def remove_task(self, task_id: str, save = True):
+    def remove_task(self, task_id: str, save: bool = True):
         try:
             self.scheduler.remove_job(task_id)
-            for i, t in enumerate(self.tasks):
-                if t.get('id') == task_id:
-                    del self.tasks[i]
-                    break
-            if save:
-                save_json(self.tasks_json_path, self.tasks)
-            logger.info(f"Task removed : {task_id}")
+            logger.info(f"Job {task_id} removed from scheduler")
+        except JobLookupError:
+            logger.warning(f"Job {task_id} not in scheduler (already fired), cleaning JSON only")
         except Exception as e:
-            logger.error(f"Error during task removal for {task_id}: {e}")
+            logger.error(f"Error removing job {task_id} from scheduler: {e}")
+
+        removed = False
+        for i, t in enumerate(self.tasks):
+            if t.get('id') == task_id:
+                del self.tasks[i]
+                removed = True
+                break
+        if removed and save:
+            save_json(self.tasks_json_path, self.tasks)
+        if removed:
+            logger.info(f"Task removed from JSON: {task_id}")
 
     def _decrement_all_skips(self):
         logger.info("Execution of global skip decrement job")

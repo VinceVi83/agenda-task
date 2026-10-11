@@ -447,7 +447,7 @@ def _stt_transcribe(audio_url: str) -> str:
         result = llm.transcribe(audio_url)['content']
         logger.info(f"Transcription result: {result}")
         fut = asyncio.run_coroutine_threadsafe(
-            manager.call_tool("dllb-skill.ask_control_multiroom", {"request_str": result}),
+            manager.call_tool("dllb-skill.call_ask", {"request_str": result}),
             main_loop,
         )
         res = fut.result(timeout=180)
