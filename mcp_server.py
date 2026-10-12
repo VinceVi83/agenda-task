@@ -72,10 +72,7 @@ def write_file_task(file_path: str, message: str):
 
 @mcp.tool()
 def send_multiroom_command(content):
-    cmd = [cfg.multiroom.python_bin, "-m", "tools.hub_messenger"]
-    cmd.append(content.strip())
-    subprocess.Popen(cmd, cwd=cfg.multiroom.working_dir)
-    return cmd
+    return Utils.send_command_multiroom(content)
 
 if __name__ == "__main__":
     send_discord_msg("test", "notify-anime")

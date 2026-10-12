@@ -546,7 +546,7 @@ class scheduler:
                 if idx < len(meta_args):
                     args[meta_args[idx]["name"]] = val
         try:
-            await asyncio.wait_for(self.manager.ready.wait(), timeout=10.0)
+            await asyncio.wait_for(self.manager.ready.wait(), timeout=180.0)
             result = await self.manager.call_tool(function_full_name, args)
             self._handle_task_success(task, result)
         except asyncio.TimeoutError:
